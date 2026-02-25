@@ -121,7 +121,7 @@ UNIT_SCALE_FACTORS = {
 APP_NAME = "Engineer’s Field Kit – Multitool"
 APP_SUBTITLE = "Engineering Multitool"
 APP_TAGLINE = "Serial • Plot • Analyze • Debug"
-APP_VERSION = "v1.0.2"
+APP_VERSION = "v1.1.0"
 APP_AUTHOR = "Justin Klumpp"
 APP_CONFIG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "engineers_field_kit_multitool_config.json")
 
@@ -198,8 +198,10 @@ class SBE83GuiApp:
         self.batch_runs_remaining_by_port = {}
         self.runs_left_var = tk.StringVar(value="Runs left: n/a")
         self.sample_format_expanded = False
+        self._dock_console_callback = self.root.register(self._dock_console_tab)
 
         self._build_ui()
+        self._apply_results_root(SENSOR_TEST_DIR, log_change=False)
         self.refresh_ports()
         self._apply_theme(persist=False)
         self.root.after(60, self._process_ui_events)
@@ -373,24 +375,25 @@ class SBE83GuiApp:
         self.port_station_frame.pack(fill=tk.X, pady=2)
         self._build_port_grid(self.port_station_frame)
 
-        self.setup_frame = ttk.LabelFrame(self.top_frame, text="Test Setup (Salt Bath Controlled Environment)", padding=8)
+        self.setup_frame = ttk.LabelFrame(self.top_frame, text="Test Setup", padding=8)
         self.setup_frame.pack(fill=tk.X, pady=4)
 
         self.operator_var = tk.StringVar(value=DEFAULT_OPERATOR)
-        self.station_var = tk.StringVar()
+        self.notes_var = tk.StringVar()
         self.bath_temp_c_var = tk.StringVar()
         self.salinity_psu_var = tk.StringVar(value=DEFAULT_SALINITY_PSU)
         self.bath_id_var = tk.StringVar()
+        self.results_root_var = tk.StringVar(value=SENSOR_TEST_DIR)
         self.sample_count_var = tk.IntVar(value=50)
         self.batch_run_count_var = tk.IntVar(value=1)
         self.batch_delay_s_var = tk.DoubleVar(value=5.0)
 
         ttk.Label(self.setup_frame, text="Operator").grid(row=0, column=0, sticky="w")
         ttk.Entry(self.setup_frame, textvariable=self.operator_var, width=20, state="readonly").grid(row=0, column=1, padx=5, sticky="w")
-        ttk.Label(self.setup_frame, text="Station").grid(row=0, column=2, sticky="w")
-        ttk.Entry(self.setup_frame, textvariable=self.station_var, width=20).grid(row=0, column=3, padx=5, sticky="w")
-        ttk.Label(self.setup_frame, text="Bath ID").grid(row=0, column=4, sticky="w")
-        ttk.Entry(self.setup_frame, textvariable=self.bath_id_var, width=18).grid(row=0, column=5, padx=5, sticky="w")
+        ttk.Label(self.setup_frame, text="Bath ID").grid(row=0, column=2, sticky="w")
+        ttk.Entry(self.setup_frame, textvariable=self.bath_id_var, width=18).grid(row=0, column=3, padx=5, sticky="w")
+        ttk.Label(self.setup_frame, text="Notes").grid(row=0, column=4, sticky="w")
+        ttk.Entry(self.setup_frame, textvariable=self.notes_var, width=28).grid(row=0, column=5, padx=5, sticky="w")
 
         ttk.Label(self.setup_frame, text="Bath Temp (C)").grid(row=1, column=0, sticky="w")
         ttk.Entry(self.setup_frame, textvariable=self.bath_temp_c_var, width=20).grid(row=1, column=1, padx=5, sticky="w")
@@ -398,9 +401,16 @@ class SBE83GuiApp:
         ttk.Entry(self.setup_frame, textvariable=self.salinity_psu_var, width=20, state="readonly").grid(row=1, column=3, padx=5, sticky="w")
         ttk.Label(self.setup_frame, text="Samples").grid(row=1, column=4, sticky="w")
         ttk.Spinbox(self.setup_frame, from_=20, to=500, textvariable=self.sample_count_var, width=8).grid(row=1, column=5, padx=5, sticky="w")
+        ttk.Label(self.setup_frame, text="Results Root").grid(row=2, column=0, sticky="w", pady=(6, 0))
+        ttk.Entry(self.setup_frame, textvariable=self.results_root_var, width=78, state="readonly").grid(
+            row=2, column=1, columnspan=4, padx=5, sticky="we", pady=(6, 0)
+        )
+        ttk.Button(self.setup_frame, text="Browse", command=self.browse_results_root).grid(
+            row=2, column=5, padx=5, sticky="e", pady=(6, 0)
+        )
         for var in (
             self.operator_var,
-            self.station_var,
+            self.notes_var,
             self.bath_id_var,
             self.bath_temp_c_var,
             self.salinity_psu_var,
@@ -449,7 +459,7 @@ class SBE83GuiApp:
         self.test_tab = ttk.Frame(self.main_notebook, padding=8)
         self.plot_tab = ttk.Frame(self.main_notebook, padding=8)
         self.log_tab = ttk.Frame(self.main_notebook, padding=8)
-        self.debug_tab = ttk.Frame(self.main_notebook, padding=8)
+        self.debug_tab = tk.Frame(self.main_notebook, padx=8, pady=8)
 
         self.main_notebook.add(self.test_tab, text="Test Results")
         self.main_notebook.add(self.plot_tab, text="Live Plot")
@@ -648,40 +658,72 @@ class SBE83GuiApp:
         )
         messagebox.showinfo("About", message)
 
+    def _current_results_root(self):
+        if hasattr(self, "results_root_var"):
+            value = self.results_root_var.get().strip()
+            if value:
+                return value
+        return SENSOR_TEST_DIR
+
+    def _apply_results_root(self, root_path, log_change=True):
+        root = os.path.abspath(str(root_path).strip())
+        os.makedirs(root, exist_ok=True)
+        if hasattr(self, "results_root_var"):
+            self.results_root_var.set(root)
+        self.session_dir = os.path.join(root, "sessions", PRECAL_TEST_SUBDIR)
+        os.makedirs(self.session_dir, exist_ok=True)
+        self.profile_dir = os.path.join(self.session_dir, "profiles")
+        os.makedirs(self.profile_dir, exist_ok=True)
+        self.session_csv = os.path.join(self.session_dir, f"sbe83_session_{self.session_id}.csv")
+        if log_change:
+            self.log(f"Results root updated: {root}")
+            self.log(f"Session summary file: {self.session_csv}")
+
+    def browse_results_root(self):
+        initial = self._current_results_root()
+        start_dir = initial if os.path.isdir(initial) else os.getcwd()
+        path = filedialog.askdirectory(title="Select Results Root Folder", initialdir=start_dir)
+        if not path:
+            return
+        try:
+            self._apply_results_root(path, log_change=True)
+        except Exception as exc:
+            messagebox.showerror("Results Root Error", str(exc))
+
     def detach_console_window(self):
         try:
             if not self.console_detached:
-                tab_ids = list(self.main_notebook.tabs())
-                had_tab = str(self.debug_tab) in tab_ids
-                if had_tab:
+                if str(self.debug_tab) in self.main_notebook.tabs():
                     self.main_notebook.forget(self.debug_tab)
+                self.root.update_idletasks()
                 self.root.tk.call("wm", "manage", str(self.debug_tab))
                 self.root.tk.call("wm", "title", str(self.debug_tab), "Serial Consoles")
                 self.root.tk.call("wm", "geometry", str(self.debug_tab), "980x640+120+120")
+                self.root.tk.call("wm", "protocol", str(self.debug_tab), "WM_DELETE_WINDOW", self._dock_console_callback)
                 self.detach_console_btn.configure(text="Dock Console")
                 self.console_detached = True
             else:
-                self.root.tk.call("wm", "forget", str(self.debug_tab))
-                if str(self.debug_tab) not in self.main_notebook.tabs():
-                    self.main_notebook.add(self.debug_tab, text="Serial Consoles")
-                self.main_notebook.select(self.debug_tab)
-                self.detach_console_btn.configure(text="Detach Console")
-                self.console_detached = False
+                self._dock_console_tab()
         except Exception as exc:
             # Keep the console reachable if detach/dock fails on this platform.
-            try:
-                self.root.tk.call("wm", "forget", str(self.debug_tab))
-            except Exception:
-                pass
-            try:
-                if str(self.debug_tab) not in self.main_notebook.tabs():
-                    self.main_notebook.add(self.debug_tab, text="Serial Consoles")
-                self.main_notebook.select(self.debug_tab)
-            except Exception:
-                pass
-            self.console_detached = False
-            self.detach_console_btn.configure(text="Detach Console")
+            self._dock_console_tab()
             messagebox.showerror("Detach Not Available", f"Could not detach/dock console on this system:\n{exc}")
+
+    def _dock_console_tab(self):
+        try:
+            self.root.tk.call("wm", "protocol", str(self.debug_tab), "WM_DELETE_WINDOW", "")
+        except Exception:
+            pass
+        try:
+            self.root.tk.call("wm", "forget", str(self.debug_tab))
+        except Exception:
+            pass
+        self.root.update_idletasks()
+        if str(self.debug_tab) not in self.main_notebook.tabs():
+            self.main_notebook.add(self.debug_tab, text="Serial Consoles")
+        self.main_notebook.select(self.debug_tab)
+        self.detach_console_btn.configure(text="Detach Console")
+        self.console_detached = False
 
     @staticmethod
     def _sanitize_measureand_key(text, idx):
@@ -1176,7 +1218,10 @@ class SBE83GuiApp:
         metric_label_var = tk.StringVar(value=available[0])
         metric_combo = ttk.Combobox(top, textvariable=metric_label_var, state="readonly", width=32, values=available)
         metric_combo.pack(side=tk.LEFT, padx=(6, 10))
+        plot_paused_var = tk.BooleanVar(value=False)
         ttk.Button(top, text="Load Reference Session", command=lambda: load_reference_and_render()).pack(side=tk.LEFT, padx=(0, 8))
+        pause_btn = ttk.Button(top, text="Pause Plot")
+        pause_btn.pack(side=tk.LEFT, padx=(0, 8))
         reference_name_var = tk.StringVar(value="Reference: not loaded")
         ttk.Label(top, textvariable=reference_name_var, foreground=DARK_MUTED).pack(side=tk.LEFT, padx=(6, 0))
 
@@ -1219,6 +1264,8 @@ class SBE83GuiApp:
         canvas.pack(fill=tk.BOTH, expand=True, padx=8, pady=(0, 8))
 
         def render():
+            if plot_paused_var.get():
+                return
             metric_key = plot_fields.get(metric_label_var.get(), "red_noise_ns")
             current_serials = _selected_serials(current_list)
             ref_serials = _selected_serials(ref_list)
@@ -1254,6 +1301,15 @@ class SBE83GuiApp:
                 plot_fields.clear()
                 plot_fields.update(merged_fields)
             render()
+
+        def toggle_pause():
+            paused = not plot_paused_var.get()
+            plot_paused_var.set(paused)
+            pause_btn.configure(text="Resume Plot" if paused else "Pause Plot")
+            if not paused:
+                render()
+
+        pause_btn.configure(command=toggle_pause)
 
         metric_combo.bind("<<ComboboxSelected>>", lambda _e: render())
         current_list.bind("<<ListboxSelect>>", lambda _e: render())
@@ -1683,10 +1739,6 @@ class SBE83GuiApp:
     def required_setup_values(self):
         return {
             "Operator": self.operator_var.get().strip(),
-            "Station": self.station_var.get().strip(),
-            "Bath ID": self.bath_id_var.get().strip(),
-            "Bath Temp (C)": self.bath_temp_c_var.get().strip(),
-            "Salinity (PSU)": self.salinity_psu_var.get().strip(),
         }
 
     def missing_setup_fields(self):
@@ -2616,7 +2668,7 @@ class SBE83GuiApp:
         return None
 
     def build_unit_folder(self, serial_number: str):
-        folder = os.path.join(SENSOR_TEST_DIR, serial_number, PRECAL_TEST_SUBDIR)
+        folder = os.path.join(self._current_results_root(), serial_number, PRECAL_TEST_SUBDIR)
         os.makedirs(folder, exist_ok=True)
         return folder
 
@@ -2797,7 +2849,7 @@ class SBE83GuiApp:
 
         setup = {
             "operator": self.operator_var.get().strip(),
-            "station": self.station_var.get().strip(),
+            "notes": self.notes_var.get().strip(),
             "bath_id": self.bath_id_var.get().strip(),
             "bath_temp_c": self.bath_temp_c_var.get().strip(),
             "salinity_psu": self.salinity_psu_var.get().strip(),
@@ -2916,7 +2968,7 @@ class SBE83GuiApp:
                     "port": selected_port,
                     "serial": serial_number,
                     "operator": setup["operator"],
-                    "station": setup["station"],
+                    "notes": setup["notes"],
                     "bath_id": setup["bath_id"],
                     "bath_temp_c": setup["bath_temp_c"],
                     "salinity_psu": setup["salinity_psu"],

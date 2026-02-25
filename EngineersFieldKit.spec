@@ -2,8 +2,8 @@
 
 
 a = Analysis(
-    ['Engineers_Field_Kit_Multitool.py'],
-    pathex=[],
+    ['src\\engineers_field_kit_multitool\\app.py'],
+    pathex=['src\\engineers_field_kit_multitool'],
     binaries=[],
     datas=[],
     hiddenimports=[],
@@ -19,21 +19,27 @@ pyz = PYZ(a.pure)
 exe = EXE(
     pyz,
     a.scripts,
-    a.binaries,
-    a.datas,
     [],
-    name="Engineer’s Field Kit – Multitool",
-    icon='assets/icons/seabird_tools_workbench.ico',
+    exclude_binaries=True,
+    name='EngineersFieldKit',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
     upx=True,
-    upx_exclude=[],
-    runtime_tmpdir=None,
     console=False,
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
+    icon=['assets\\engineers_field_kit_icon.ico'],
+)
+coll = COLLECT(
+    exe,
+    a.binaries,
+    a.datas,
+    strip=False,
+    upx=True,
+    upx_exclude=[],
+    name='EngineersFieldKit',
 )
