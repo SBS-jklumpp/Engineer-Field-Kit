@@ -4,6 +4,7 @@ import json
 import os
 import queue
 import re
+import sys
 import threading
 import time
 import tkinter as tk
@@ -120,8 +121,8 @@ UNIT_SCALE_FACTORS = {
 APP_NAME = "Engineer’s Field Kit – Multitool"
 APP_SUBTITLE = "Engineering Multitool"
 APP_TAGLINE = "Serial • Plot • Analyze • Debug"
-APP_VERSION = "v1.0.1"
-APP_AUTHOR = "Senior Electrical Engineer"
+APP_VERSION = "v1.0.2"
+APP_AUTHOR = "Justin Klumpp"
 APP_CONFIG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "engineers_field_kit_multitool_config.json")
 
 
@@ -172,7 +173,8 @@ class SBE83GuiApp:
         self.stream_stop_events = {}
         self.stream_enabled = {}
         self.manual_capture_rows = []
-        self.baseline_rows = []
+        self.reference_session_rows = []
+        self.reference_session_path = ""
         self.ui_event_queue = queue.Queue()
         self.shutdown_event = threading.Event()
         self.profile_dir = os.path.join(self.session_dir, "profiles")
@@ -189,7 +191,12 @@ class SBE83GuiApp:
         self.live_visible_only_var = tk.BooleanVar(value=False)
         self.live_x_start_var = tk.IntVar(value=1)
         self.live_x_end_var = tk.IntVar(value=0)
-        self.tabs_detached = False
+        self.console_detached = False
+        self.console_send_cr_var = tk.BooleanVar(value=True)
+        self.console_send_lf_var = tk.BooleanVar(value=True)
+        self.console_display_mode_var = tk.StringVar(value="ascii")
+        self.batch_runs_remaining_by_port = {}
+        self.runs_left_var = tk.StringVar(value="Runs left: n/a")
         self.sample_format_expanded = False
 
         self._build_ui()
@@ -350,6 +357,8 @@ class SBE83GuiApp:
         ttk.Button(conn, text="Disconnect All", command=self.disconnect_all_ports).grid(row=0, column=9, padx=4)
         self.port_station_toggle_btn = ttk.Button(conn, text="Hide Port Station View", command=self._toggle_port_station_visibility)
         self.port_station_toggle_btn.grid(row=0, column=10, padx=4)
+        conn.grid_columnconfigure(11, weight=1)
+        ttk.Button(conn, text="About", command=self.show_about_dialog).grid(row=0, column=12, padx=4, sticky="e")
 
         self.conn_status = tk.StringVar(value="Connected ports: 0")
         ttk.Label(conn, textvariable=self.conn_status, foreground=DARK_MUTED).grid(row=1, column=0, columnspan=2, sticky="w", pady=(6, 0))
@@ -410,18 +419,17 @@ class SBE83GuiApp:
         ttk.Button(actions, text="Reset Session", command=self.reset_session).grid(row=0, column=2, padx=4)
         ttk.Button(actions, text="Show Plot", command=self.show_plot_tab).grid(row=0, column=3, padx=4)
         ttk.Button(actions, text="Show Console", command=self.show_console_tab).grid(row=0, column=4, padx=4)
-        self.detach_tabs_btn = ttk.Button(actions, text="Detach Tabs", command=self.detach_tabs_window)
-        self.detach_tabs_btn.grid(row=0, column=5, padx=4)
+        self.detach_console_btn = ttk.Button(actions, text="Detach Console", command=self.detach_console_window)
+        self.detach_console_btn.grid(row=0, column=5, padx=4)
         ttk.Button(actions, text="Plot Session", command=self.plot_current_session).grid(row=0, column=6, padx=4)
         ttk.Button(actions, text="Load Session Plot", command=self.load_session_plot).grid(row=0, column=7, padx=4)
-        ttk.Button(actions, text="About", command=self.show_about_dialog).grid(row=0, column=8, padx=4)
         ttk.Button(actions, text="Reload Current Session JSON", command=self.reload_current_session_plot).grid(
-            row=0, column=9, padx=4
+            row=0, column=8, padx=4
         )
-        ttk.Button(actions, text="Toggle CSV Column", command=self.toggle_csv_column).grid(row=0, column=10, padx=4)
+        ttk.Button(actions, text="Toggle CSV Column", command=self.toggle_csv_column).grid(row=0, column=9, padx=4)
 
         self.limit_var = tk.StringVar(value=f"Units tested: 0 / {MAX_UNITS_PER_SESSION}")
-        ttk.Label(actions, textvariable=self.limit_var).grid(row=0, column=11, padx=12, sticky="w")
+        ttk.Label(actions, textvariable=self.limit_var).grid(row=0, column=10, padx=12, sticky="w")
         ttk.Label(actions, text="Runs").grid(row=1, column=0, sticky="e", padx=(4, 2), pady=(6, 0))
         ttk.Spinbox(actions, from_=1, to=50, textvariable=self.batch_run_count_var, width=6).grid(
             row=1, column=1, sticky="w", padx=(0, 8), pady=(6, 0)
@@ -433,6 +441,7 @@ class SBE83GuiApp:
         ttk.Checkbutton(actions, text="Dark Mode", variable=self.dark_mode_var, command=self._on_toggle_dark_mode).grid(
             row=1, column=4, sticky="w", padx=(8, 0), pady=(6, 0)
         )
+        ttk.Label(actions, textvariable=self.runs_left_var).grid(row=1, column=5, columnspan=6, sticky="w", padx=(12, 0), pady=(6, 0))
 
         self.main_notebook = ttk.Notebook(self.root)
         self.main_notebook.pack(fill=tk.BOTH, expand=True, padx=8, pady=(0, 8))
@@ -497,7 +506,7 @@ class SBE83GuiApp:
             ("sample_csv", 390),
         ]:
             self.tree.heading(c, text=c, command=lambda col=c: self.sort_tree_by_column(col))
-            self.tree.column(c, width=w, anchor="w")
+            self.tree.column(c, width=w, minwidth=60, anchor="w", stretch=True)
         self.tree.grid(row=0, column=0, sticky="nsew")
         tree_scroll_y.grid(row=0, column=1, sticky="ns")
         tree_scroll_x.grid(row=1, column=0, sticky="ew")
@@ -592,6 +601,13 @@ class SBE83GuiApp:
         debug_actions.pack(fill=tk.X, pady=(0, 6))
         ttk.Button(debug_actions, text="Clear Selected Debug Tab", command=self.clear_selected_debug_tab).pack(side=tk.LEFT)
         ttk.Button(debug_actions, text="Export Console CSV", command=self.export_manual_capture).pack(side=tk.LEFT, padx=(6, 0))
+        ttk.Checkbutton(debug_actions, text="CR", variable=self.console_send_cr_var).pack(side=tk.LEFT, padx=(14, 0))
+        ttk.Checkbutton(debug_actions, text="LF", variable=self.console_send_lf_var).pack(side=tk.LEFT, padx=(4, 10))
+        ttk.Label(debug_actions, text="Display").pack(side=tk.LEFT)
+        ttk.Radiobutton(debug_actions, text="ASCII", variable=self.console_display_mode_var, value="ascii").pack(side=tk.LEFT, padx=(4, 0))
+        ttk.Radiobutton(debug_actions, text="HEX", variable=self.console_display_mode_var, value="hex").pack(side=tk.LEFT, padx=(4, 0))
+        ttk.Radiobutton(debug_actions, text="DEC", variable=self.console_display_mode_var, value="dec").pack(side=tk.LEFT, padx=(4, 0))
+        ttk.Radiobutton(debug_actions, text="BIN", variable=self.console_display_mode_var, value="bin").pack(side=tk.LEFT, padx=(4, 0))
         self.debug_notebook = ttk.Notebook(debug)
         self.debug_notebook.pack(fill=tk.BOTH, expand=True)
         self._rebuild_measureand_editor_rows(self.sample_field_defs)
@@ -601,6 +617,13 @@ class SBE83GuiApp:
         self.main_notebook.select(self.plot_tab)
 
     def show_console_tab(self):
+        if self.console_detached:
+            try:
+                self.root.tk.call("wm", "deiconify", str(self.debug_tab))
+                self.root.tk.call("raise", str(self.debug_tab))
+            except Exception:
+                pass
+            return
         self.main_notebook.select(self.debug_tab)
 
     def toggle_sample_format_panel(self, expanded=None):
@@ -625,21 +648,40 @@ class SBE83GuiApp:
         )
         messagebox.showinfo("About", message)
 
-    def detach_tabs_window(self):
+    def detach_console_window(self):
         try:
-            if not self.tabs_detached:
-                self.root.tk.call("wm", "manage", str(self.main_notebook))
-                self.root.tk.call("wm", "title", str(self.main_notebook), "SBS Tabs")
-                self.root.tk.call("wm", "geometry", str(self.main_notebook), "980x640+120+120")
-                self.detach_tabs_btn.configure(text="Dock Tabs")
-                self.tabs_detached = True
+            if not self.console_detached:
+                tab_ids = list(self.main_notebook.tabs())
+                had_tab = str(self.debug_tab) in tab_ids
+                if had_tab:
+                    self.main_notebook.forget(self.debug_tab)
+                self.root.tk.call("wm", "manage", str(self.debug_tab))
+                self.root.tk.call("wm", "title", str(self.debug_tab), "Serial Consoles")
+                self.root.tk.call("wm", "geometry", str(self.debug_tab), "980x640+120+120")
+                self.detach_console_btn.configure(text="Dock Console")
+                self.console_detached = True
             else:
-                self.root.tk.call("wm", "forget", str(self.main_notebook))
-                self.main_notebook.pack(fill=tk.BOTH, expand=True, padx=8, pady=(0, 8))
-                self.detach_tabs_btn.configure(text="Detach Tabs")
-                self.tabs_detached = False
+                self.root.tk.call("wm", "forget", str(self.debug_tab))
+                if str(self.debug_tab) not in self.main_notebook.tabs():
+                    self.main_notebook.add(self.debug_tab, text="Serial Consoles")
+                self.main_notebook.select(self.debug_tab)
+                self.detach_console_btn.configure(text="Detach Console")
+                self.console_detached = False
         except Exception as exc:
-            messagebox.showerror("Detach Not Available", f"Could not detach/dock tabs on this system:\n{exc}")
+            # Keep the console reachable if detach/dock fails on this platform.
+            try:
+                self.root.tk.call("wm", "forget", str(self.debug_tab))
+            except Exception:
+                pass
+            try:
+                if str(self.debug_tab) not in self.main_notebook.tabs():
+                    self.main_notebook.add(self.debug_tab, text="Serial Consoles")
+                self.main_notebook.select(self.debug_tab)
+            except Exception:
+                pass
+            self.console_detached = False
+            self.detach_console_btn.configure(text="Detach Console")
+            messagebox.showerror("Detach Not Available", f"Could not detach/dock console on this system:\n{exc}")
 
     @staticmethod
     def _sanitize_measureand_key(text, idx):
@@ -1129,38 +1171,99 @@ class SBE83GuiApp:
         top = ttk.Frame(win, padding=8)
         top.pack(fill=tk.X)
 
-        ttk.Label(top, text=f"Runs: {len(rows)}  |  Grouped by serial").pack(side=tk.LEFT, padx=(0, 12))
+        ttk.Label(top, text=f"Current runs: {len(rows)}  |  Compare two sessions by serial").pack(side=tk.LEFT, padx=(0, 12))
         ttk.Label(top, text="Plot field").pack(side=tk.LEFT)
         metric_label_var = tk.StringVar(value=available[0])
         metric_combo = ttk.Combobox(top, textvariable=metric_label_var, state="readonly", width=32, values=available)
         metric_combo.pack(side=tk.LEFT, padx=(6, 10))
-        compare_var = tk.BooleanVar(value=False)
-        ttk.Checkbutton(top, text="Compare to Baseline", variable=compare_var).pack(side=tk.LEFT, padx=(8, 8))
+        ttk.Button(top, text="Load Reference Session", command=lambda: load_reference_and_render()).pack(side=tk.LEFT, padx=(0, 8))
+        reference_name_var = tk.StringVar(value="Reference: not loaded")
+        ttk.Label(top, textvariable=reference_name_var, foreground=DARK_MUTED).pack(side=tk.LEFT, padx=(6, 0))
+
+        selectors = ttk.Frame(win, padding=(8, 0, 8, 6))
+        selectors.pack(fill=tk.X)
+        current_group = ttk.LabelFrame(selectors, text="Current Session Sensors", padding=6)
+        current_group.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 4))
+        ref_group = ttk.LabelFrame(selectors, text="Reference Session Sensors", padding=6)
+        ref_group.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(4, 0))
+
+        current_list = tk.Listbox(current_group, selectmode=tk.EXTENDED, exportselection=False, height=5)
+        current_list.pack(fill=tk.BOTH, expand=True)
+        ref_list = tk.Listbox(ref_group, selectmode=tk.EXTENDED, exportselection=False, height=5)
+        ref_list.pack(fill=tk.BOTH, expand=True)
+
+        current_rows_var = list(rows)
+        reference_rows_var = []
+
+        def _serials_for_rows(in_rows):
+            serials = sorted({(str(r.get("serial", "")).strip() or "UNKNOWN") for r in in_rows})
+            return serials
+
+        def _populate_sensor_list(listbox, serials):
+            listbox.delete(0, tk.END)
+            for serial in serials:
+                listbox.insert(tk.END, serial)
+            if serials:
+                listbox.selection_set(0, tk.END)
+
+        def _selected_serials(listbox):
+            selected_idx = listbox.curselection()
+            if not selected_idx:
+                return set(listbox.get(0, tk.END))
+            return {listbox.get(i) for i in selected_idx}
+
+        _populate_sensor_list(current_list, _serials_for_rows(current_rows_var))
+        _populate_sensor_list(ref_list, [])
 
         canvas = tk.Canvas(win, bg="#0b1220", highlightthickness=1, highlightbackground=DARK_BORDER)
         canvas.pack(fill=tk.BOTH, expand=True, padx=8, pady=(0, 8))
-        render = lambda: self._draw_session_metric_plot(
-            canvas,
-            rows,
-            plot_fields.get(metric_label_var.get(), "red_noise_ns"),
-            metric_label_var.get(),
-            compare_baseline=bool(compare_var.get()),
-        )
+
+        def render():
+            metric_key = plot_fields.get(metric_label_var.get(), "red_noise_ns")
+            current_serials = _selected_serials(current_list)
+            ref_serials = _selected_serials(ref_list)
+            current_filtered = [r for r in current_rows_var if (str(r.get("serial", "")).strip() or "UNKNOWN") in current_serials]
+            ref_filtered = [r for r in reference_rows_var if (str(r.get("serial", "")).strip() or "UNKNOWN") in ref_serials]
+            self._draw_session_metric_plot(
+                canvas,
+                current_filtered,
+                ref_filtered,
+                metric_key,
+                metric_label_var.get(),
+                current_label="Current",
+                reference_label="Reference",
+            )
+
+        def load_reference_and_render():
+            loaded = self._load_reference_rows()
+            if not loaded:
+                return
+            reference_rows_var.clear()
+            reference_rows_var.extend(self.reference_session_rows)
+            reference_name_var.set(f"Reference: {os.path.basename(self.reference_session_path)} ({len(reference_rows_var)} runs)")
+            _populate_sensor_list(ref_list, _serials_for_rows(reference_rows_var))
+            merged_fields = self._session_plot_fields_for_rows(current_rows_var + reference_rows_var)
+            merged_available = []
+            for label, key in merged_fields.items():
+                if any(np.isfinite(self._to_float(r.get(key))) for r in (current_rows_var + reference_rows_var)):
+                    merged_available.append(label)
+            if merged_available:
+                metric_combo.configure(values=merged_available)
+                if metric_label_var.get() not in merged_available:
+                    metric_label_var.set(merged_available[0])
+                plot_fields.clear()
+                plot_fields.update(merged_fields)
+            render()
+
         metric_combo.bind("<<ComboboxSelected>>", lambda _e: render())
-        compare_var.trace_add("write", lambda *_: render())
+        current_list.bind("<<ListboxSelect>>", lambda _e: render())
+        ref_list.bind("<<ListboxSelect>>", lambda _e: render())
         canvas.bind("<Configure>", lambda _e: render())
-
-        def load_baseline_and_render():
-            if self._load_baseline_rows():
-                compare_var.set(True)
-                render()
-
-        ttk.Button(top, text="Load Baseline", command=load_baseline_and_render).pack(side=tk.LEFT, padx=(0, 8))
         render()
 
-    def _load_baseline_rows(self):
+    def _load_reference_rows(self):
         path = filedialog.askopenfilename(
-            title="Load Baseline Session JSON",
+            title="Load Reference Session JSON",
             initialdir=self.session_dir,
             filetypes=[("JSON files", "*.json"), ("All files", "*.*")],
         )
@@ -1169,11 +1272,12 @@ class SBE83GuiApp:
         try:
             with open(path, "r", encoding="utf-8") as f:
                 data = json.load(f)
-            self.baseline_rows = self._normalize_session_rows(data)
-            self.log(f"Loaded baseline rows: {len(self.baseline_rows)} from {path}")
-            return bool(self.baseline_rows)
+            self.reference_session_rows = self._normalize_session_rows(data)
+            self.reference_session_path = path
+            self.log(f"Loaded reference rows: {len(self.reference_session_rows)} from {path}")
+            return bool(self.reference_session_rows)
         except Exception as exc:
-            messagebox.showerror("Baseline Load Failed", str(exc))
+            messagebox.showerror("Reference Load Failed", str(exc))
             return False
 
     def _session_plot_fields_for_rows(self, rows):
@@ -1211,9 +1315,18 @@ class SBE83GuiApp:
             return "#7c3aed"
         return "#4b5563"
 
-    def _draw_session_metric_plot(self, canvas, rows, metric_key, metric_label, compare_baseline=False):
+    def _draw_session_metric_plot(
+        self,
+        canvas,
+        current_rows,
+        reference_rows,
+        metric_key,
+        metric_label,
+        current_label="Current",
+        reference_label="Reference",
+    ):
         canvas.delete("all")
-        if not rows:
+        if not current_rows and not reference_rows:
             canvas.create_text(20, 20, text="No session data to plot.", anchor="nw", fill=DARK_MUTED)
             return
 
@@ -1223,23 +1336,16 @@ class SBE83GuiApp:
         pw = max(right - left, 1)
         ph = max(bottom - top, 1)
 
-        raw_y_vals = [self._to_float(r.get(metric_key)) for r in rows]
-        if compare_baseline and self.baseline_rows:
-            base_by_serial = {}
-            for row in self.baseline_rows:
-                serial = str(row.get("serial", "")).strip() or "UNKNOWN"
+        rows_by_name = {
+            current_label: list(current_rows),
+            reference_label: list(reference_rows),
+        }
+        finite_raw_y = []
+        for rows in rows_by_name.values():
+            for row in rows:
                 val = self._to_float(row.get(metric_key))
                 if np.isfinite(val):
-                    base_by_serial.setdefault(serial, []).append(val)
-            base_mean = {k: float(np.mean(v)) for k, v in base_by_serial.items() if v}
-            adjusted = []
-            for i, row in enumerate(rows):
-                serial = str(row.get("serial", "")).strip() or "UNKNOWN"
-                cur = raw_y_vals[i]
-                ref = base_mean.get(serial)
-                adjusted.append(cur - ref if np.isfinite(cur) and ref is not None else np.nan)
-            raw_y_vals = adjusted
-        finite_raw_y = [v for v in raw_y_vals if np.isfinite(v)]
+                    finite_raw_y.append(val)
         if not finite_raw_y:
             canvas.create_text(20, 20, text=f"No finite values for {metric_label}.", anchor="nw", fill=DARK_MUTED)
             return
@@ -1251,8 +1357,6 @@ class SBE83GuiApp:
             base_key = metric_key[: -len("_avg")]
         scale_factor = self._field_scale_factor(base_key)
         y_axis_label = self._field_label_with_unit(base_key, metric_label)
-        if compare_baseline:
-            y_axis_label = f"Delta {y_axis_label}"
 
         y_vals = [v * scale_factor for v in finite_raw_y]
         ymin = min(y_vals)
@@ -1275,14 +1379,13 @@ class SBE83GuiApp:
             canvas.create_line(left, y, right, y, fill="#1f2937")
             canvas.create_text(left - 8, y, text=self.fmt(val), anchor="e", fill=DARK_MUTED)
 
-        # Group rows by serial and distribute groups across the full axis width.
         serials = []
-        for row in rows:
-            serial = str(row.get("serial", "")).strip() or "UNKNOWN"
-            if serial not in serials:
-                serials.append(serial)
+        for rows in rows_by_name.values():
+            for row in rows:
+                serial = str(row.get("serial", "")).strip() or "UNKNOWN"
+                if serial not in serials:
+                    serials.append(serial)
         n_serials = len(serials)
-        # Dynamic side padding keeps endpoints visible without wasting large central area.
         x_pad = min(max(width * 0.04, 20.0), 60.0)
         x_left = left + x_pad
         x_right = right - x_pad
@@ -1296,7 +1399,6 @@ class SBE83GuiApp:
                 for i, serial in enumerate(serials)
             }
 
-        # Alternating light bands make each serial set easier to identify.
         for i, serial in enumerate(serials):
             x = serial_base_x[serial]
             if n_serials == 1:
@@ -1308,32 +1410,6 @@ class SBE83GuiApp:
                 band_right = (x + next_x) / 2.0 if i < n_serials - 1 else x_right
             shade = "#0f172a" if i % 2 == 0 else "#111827"
             canvas.create_rectangle(band_left, top, band_right, bottom, fill=shade, outline="")
-
-        serial_row_idxs = {serial: [] for serial in serials}
-        for idx, row in enumerate(rows):
-            serial = str(row.get("serial", "")).strip() or "UNKNOWN"
-            serial_row_idxs[serial].append(idx)
-
-        x_positions = [left + pw / 2.0] * len(rows)
-        run_labels = ["r1"] * len(rows)
-        for serial in serials:
-            idxs = serial_row_idxs[serial]
-            count = len(idxs)
-            if n_serials > 1:
-                neighbor_gap = (x_right - x_left) / (n_serials - 1)
-            else:
-                neighbor_gap = max(x_right - x_left, 1.0)
-            cluster_span = min(28.0, neighbor_gap * 0.55)
-            intra_step = 0.0 if count <= 1 else (cluster_span / (count - 1))
-            start = -((count - 1) * intra_step) / 2.0
-            for j, row_idx in enumerate(idxs):
-                x_positions[row_idx] = serial_base_x[serial] + start + (j * intra_step)
-                run_idx_raw = rows[row_idx].get("run_index")
-                try:
-                    run_idx_num = int(run_idx_raw)
-                except (TypeError, ValueError):
-                    run_idx_num = j + 1
-                run_labels[row_idx] = f"r{run_idx_num}"
 
         label_step = max(1, n_serials // 12)
         for i, serial in enumerate(serials):
@@ -1351,26 +1427,109 @@ class SBE83GuiApp:
         canvas.create_line(x_left, top, x_left, bottom, fill=DARK_BORDER)
         canvas.create_line(x_right, top, x_right, bottom, fill=DARK_BORDER)
 
-        canvas.create_text((left + right) / 2, height - 18, text="Serial Number", anchor="center", fill=DARK_TEXT)
+        canvas.create_text((left + right) / 2, height - 18, text="Sensor Serial", anchor="center", fill=DARK_TEXT)
         canvas.create_text(18, (top + bottom) / 2, text=y_axis_label, angle=90, anchor="center", fill=DARK_TEXT)
 
-        metric_color = self._session_metric_color(metric_key)
-        for i, row in enumerate(rows):
-            v = self._to_float(row.get(metric_key))
-            if not np.isfinite(v):
-                continue
-            v *= scale_factor
-            x = x_positions[i]
-            y = bottom - ((v - ymin) / (ymax - ymin)) * ph
-            canvas.create_oval(x - 2, y - 2, x + 2, y + 2, fill=metric_color, outline=metric_color)
-            canvas.create_text(
-                x + 5,
-                y - 5,
-                text=run_labels[i],
-                anchor="sw",
-                fill=DARK_MUTED,
-                font=("Segoe UI", 6),
-            )
+        y_den = max(ymax - ymin, 1e-12)
+        point_meta = []
+        both_sessions = bool(current_rows) and bool(reference_rows)
+        session_colors = {
+            current_label: "#f59e0b",
+            reference_label: "#22c55e",
+        }
+        session_offset = {
+            current_label: -8.0 if both_sessions else 0.0,
+            reference_label: 8.0 if both_sessions else 0.0,
+        }
+        for session_name, rows in rows_by_name.items():
+            color = session_colors.get(session_name, self._session_metric_color(metric_key))
+            serial_row_idxs = {serial: [] for serial in serials}
+            for idx, row in enumerate(rows):
+                serial = str(row.get("serial", "")).strip() or "UNKNOWN"
+                serial_row_idxs[serial].append(idx)
+
+            x_positions = [left + pw / 2.0] * len(rows)
+            for serial in serials:
+                idxs = serial_row_idxs[serial]
+                count = len(idxs)
+                if count == 0:
+                    continue
+                if n_serials > 1:
+                    neighbor_gap = (x_right - x_left) / (n_serials - 1)
+                else:
+                    neighbor_gap = max(x_right - x_left, 1.0)
+                cluster_span = min(20.0, neighbor_gap * 0.35)
+                intra_step = 0.0 if count <= 1 else (cluster_span / (count - 1))
+                start = -((count - 1) * intra_step) / 2.0
+                for j, row_idx in enumerate(idxs):
+                    x_positions[row_idx] = serial_base_x[serial] + session_offset[session_name] + start + (j * intra_step)
+
+            for i, row in enumerate(rows):
+                raw_val = self._to_float(row.get(metric_key))
+                if not np.isfinite(raw_val):
+                    continue
+                scaled_val = raw_val * scale_factor
+                x = x_positions[i]
+                y = bottom - ((scaled_val - ymin) / y_den) * ph
+                canvas.create_oval(x - 3, y - 3, x + 3, y + 3, fill=color, outline=color)
+                run_idx = row.get("run_index", i + 1)
+                serial = str(row.get("serial", "")).strip() or "UNKNOWN"
+                point_meta.append(
+                    {
+                        "x": x,
+                        "y": y,
+                        "text": f"{session_name} | {serial} | r{run_idx} | y={self.fmt(scaled_val)}",
+                    }
+                )
+
+        legend = []
+        if current_rows:
+            legend.append((current_label, session_colors[current_label], len(current_rows)))
+        if reference_rows:
+            legend.append((reference_label, session_colors[reference_label], len(reference_rows)))
+        legend_x = left + 8
+        legend_y = top + 8
+        for i, (name, color, nrows) in enumerate(legend):
+            y = legend_y + i * 15
+            canvas.create_line(legend_x, y, legend_x + 16, y, fill=color, width=3)
+            canvas.create_text(legend_x + 22, y, text=f"{name} ({nrows})", anchor="w", fill=DARK_TEXT)
+
+        self._bind_session_plot_hover(canvas, point_meta)
+
+    def _bind_session_plot_hover(self, canvas, point_meta):
+        canvas._session_hover_points = point_meta
+
+        def on_motion(event):
+            points = getattr(canvas, "_session_hover_points", [])
+            if not points:
+                canvas.delete("hover_tip")
+                return
+            best = None
+            best_d2 = 81.0
+            for p in points:
+                dx = p["x"] - event.x
+                dy = p["y"] - event.y
+                d2 = dx * dx + dy * dy
+                if d2 <= best_d2:
+                    best_d2 = d2
+                    best = p
+            canvas.delete("hover_tip")
+            if not best:
+                return
+            tx = best["x"] + 10
+            ty = best["y"] - 10
+            text_id = canvas.create_text(tx, ty, text=best["text"], anchor="sw", fill=DARK_TEXT, tags="hover_tip")
+            x0, y0, x1, y1 = canvas.bbox(text_id)
+            canvas.create_rectangle(x0 - 4, y0 - 2, x1 + 4, y1 + 2, fill="#0f172a", outline=DARK_BORDER, tags="hover_tip")
+            canvas.tag_raise(text_id)
+
+        def on_leave(_event):
+            canvas.delete("hover_tip")
+
+        if not getattr(canvas, "_session_hover_bound", False):
+            canvas.bind("<Motion>", on_motion)
+            canvas.bind("<Leave>", on_leave)
+            canvas._session_hover_bound = True
 
     @staticmethod
     def _sort_value(col, raw):
@@ -1539,6 +1698,14 @@ class SBE83GuiApp:
         allow_run = connected and setup_complete and not self.run_in_progress
         self.run_btn.configure(state=tk.NORMAL if allow_run else tk.DISABLED)
 
+    def _update_runs_left_label(self):
+        if not self.batch_runs_remaining_by_port:
+            self.runs_left_var.set("Runs left: n/a")
+            return
+        total_left = sum(max(0, int(v)) for v in self.batch_runs_remaining_by_port.values())
+        parts = [f"{port}:{max(0, int(v))}" for port, v in sorted(self.batch_runs_remaining_by_port.items())]
+        self.runs_left_var.set(f"Runs left: {total_left} total ({' | '.join(parts)})")
+
     @staticmethod
     def status_color(status):
         colors = {
@@ -1681,11 +1848,13 @@ class SBE83GuiApp:
             messagebox.showwarning("No Command", "Type a command before pressing Send.")
             return
         try:
+            payload_bytes = self._console_command_bytes(cmd)
             if from_entry:
                 box = self.debug_tabs[port]["text"]
                 box.insert(tk.END, f"> {cmd}\n")
                 self._ensure_console_trailing_newline(port)
-            self.send_cmd(ser, cmd, port=port)
+            self.serial_debug(port, "TX", payload_bytes)
+            ser.write(payload_bytes)
             self.debug_tabs[port]["cmd_var"].set("")
             self._ensure_console_trailing_newline(port)
             threading.Thread(target=self._read_debug_responses_quick, args=(port, 0.35), daemon=True).start()
@@ -1702,7 +1871,7 @@ class SBE83GuiApp:
             ser.timeout = 0.08
             deadline = time.time() + window_s
             while time.time() < deadline and not self.shutdown_event.is_set():
-                self.read_line(ser, port=port)
+                self._read_debug_line(ser, port=port)
         except Exception as exc:
             self.log(f"[{port}] Quick read failed: {exc}")
         finally:
@@ -1728,8 +1897,8 @@ class SBE83GuiApp:
             ser.timeout = 0.15
             deadline = time.time() + window_s
             while time.time() < deadline:
-                line = self.read_line(ser, port=port)
-                if not line:
+                raw = self._read_debug_line(ser, port=port)
+                if not raw:
                     continue
                 rx_count += 1
         finally:
@@ -1746,11 +1915,11 @@ class SBE83GuiApp:
     def _append_debug_line(self, port, direction, payload):
         if not port:
             return
-        payload = "" if payload is None else str(payload)
+        payload_text = self._format_console_payload(payload)
         box = self.ensure_debug_tab(port)
         info = self.debug_tabs[port]
         ts = dt.datetime.now().strftime("%H:%M:%S.%f")[:-3]
-        line = f"[{ts}] {direction}: {payload}\n"
+        line = f"[{ts}] {direction}: {payload_text}\n"
         box.insert(tk.END, line)
         info["lines"] += 1
         if info["lines"] > self.debug_max_lines:
@@ -1758,7 +1927,12 @@ class SBE83GuiApp:
             info["lines"] -= 1
         box.see(tk.END)
         self.manual_capture_rows.append(
-            {"timestamp": dt.datetime.now().isoformat(timespec="milliseconds"), "port": port, "direction": direction, "payload": payload}
+            {
+                "timestamp": dt.datetime.now().isoformat(timespec="milliseconds"),
+                "port": port,
+                "direction": direction,
+                "payload": payload_text,
+            }
         )
 
     def _process_ui_events(self):
@@ -1816,9 +1990,9 @@ class SBE83GuiApp:
                     if self.port_is_running(port):
                         time.sleep(0.1)
                         continue
-                    line = ser.readline().decode("utf-8", errors="ignore").strip()
-                    if line:
-                        self.serial_debug(port, "RX", line)
+                    raw = ser.readline()
+                    if raw:
+                        self.serial_debug(port, "RX", raw)
             except Exception as exc:
                 self.log(f"[{port}] Stream reader stopped: {exc}")
             finally:
@@ -1968,6 +2142,44 @@ class SBE83GuiApp:
             self.set_port_status(port, "DISCONNECTED")
         self.log("All ports disconnected")
         self.update_connection_labels()
+
+    def _console_command_bytes(self, cmd):
+        suffix = b""
+        if self.console_send_cr_var.get():
+            suffix += b"\r"
+        if self.console_send_lf_var.get():
+            suffix += b"\n"
+        return str(cmd).encode("utf-8", errors="replace") + suffix
+
+    def _format_console_payload(self, payload):
+        raw = payload if isinstance(payload, (bytes, bytearray)) else str(payload).encode("utf-8", errors="replace")
+        mode = self.console_display_mode_var.get()
+        if mode == "hex":
+            return " ".join(f"{b:02X}" for b in raw)
+        if mode == "dec":
+            return " ".join(str(b) for b in raw)
+        if mode == "bin":
+            return " ".join(f"{b:08b}" for b in raw)
+
+        out = []
+        for b in raw:
+            if 32 <= b <= 126:
+                out.append(chr(b))
+            elif b == 13:
+                out.append("<CR>")
+            elif b == 10:
+                out.append("<LF>")
+            elif b == 9:
+                out.append("<TAB>")
+            else:
+                out.append(f"<0x{b:02X}>")
+        return "".join(out)
+
+    def _read_debug_line(self, ser, port=None):
+        raw = ser.readline()
+        if raw:
+            self.serial_debug(port, "RX", raw)
+        return raw
 
     def send_cmd(self, ser, cmd: str, port=None):
         self.serial_debug(port, "TX", cmd)
@@ -2596,6 +2808,8 @@ class SBE83GuiApp:
         with self.run_state_lock:
             self.active_run_ports = set(connected_ports)
             self.run_threads = {}
+        self.batch_runs_remaining_by_port = {port: run_count for port in connected_ports}
+        self._update_runs_left_label()
         self._reset_live_view_for_ports(connected_ports, n_samples)
         self.log(
             f"Starting parallel test across {len(connected_ports)} port(s): {', '.join(connected_ports)} "
@@ -2758,6 +2972,10 @@ class SBE83GuiApp:
         self.session_rows.append(summary)
         self.session_serials.add(serial_number)
         self.limit_var.set(f"Units tested: {len(self.session_serials)} / {MAX_UNITS_PER_SESSION}")
+        run_total = int(summary.get("run_total", 1) or 1)
+        run_index = int(summary.get("run_index", 1) or 1)
+        self.batch_runs_remaining_by_port[selected_port] = max(0, run_total - run_index)
+        self._update_runs_left_label()
 
         self.tree.insert(
             "",
@@ -2805,6 +3023,10 @@ class SBE83GuiApp:
             self.active_run_ports.discard(port)
             self.run_threads.pop(port, None)
             done = len(self.active_run_ports) == 0
+        self.batch_runs_remaining_by_port[port] = 0
+        if done:
+            self.batch_runs_remaining_by_port = {}
+        self._update_runs_left_label()
         if done:
             self.run_in_progress = False
             self.update_run_button_state()
@@ -2844,6 +3066,8 @@ class SBE83GuiApp:
         self.session_serials = set()
         self.session_csv = os.path.join(self.session_dir, f"sbe83_session_{self.session_id}.csv")
         self.limit_var.set(f"Units tested: 0 / {MAX_UNITS_PER_SESSION}")
+        self.batch_runs_remaining_by_port = {}
+        self._update_runs_left_label()
         self.log(f"New session started: {self.session_id}")
         self.log(f"Session summary file: {self.session_csv}")
         self.update_port_grid()
@@ -2881,6 +3105,9 @@ class SBE83GuiApp:
 
 def main():
     global SENSOR_TEST_DIR
+    if getattr(sys, "frozen", False):
+        exe_dir = os.path.dirname(os.path.abspath(sys.executable))
+        SENSOR_TEST_DIR = os.path.join(exe_dir, "SBE83")
     try:
         os.makedirs(SENSOR_TEST_DIR, exist_ok=True)
     except Exception:
