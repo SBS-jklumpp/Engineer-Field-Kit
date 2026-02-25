@@ -1,0 +1,36 @@
+#
+# The name set in this file will be the distribution name used with pip
+# The name of the directory in src will be the import name
+#
+
+[project]
+name = "engineer-field-kit"
+version = "1.0.0-alpha.0"
+description = "Engineer's Field Kit"
+readme = "README.md"
+requires-python = ">=3.9"
+license = {file = "LICENSE.txt"}
+
+authors = [
+    {name = "Lukas Christensen", email = "lchristensen@seabird.com"},
+]
+
+maintainers = [
+    {name = "Lukas Christensen", email = "lchristensen@seabird.com"},
+]
+
+# For a list of valid classifiers, see https://pypi.org/classifiers/
+classifiers = [
+    "Development Status :: 1 - Planning",
+    "Private :: Do Not Upload",
+]
+
+dependencies = [
+    "build",
+    "pytest",
+    "tox",
+]
+
+[build-system]
+requires = ["setuptools>=43.0.0", "wheel"]
+build-backend = "setuptools.build_meta"
