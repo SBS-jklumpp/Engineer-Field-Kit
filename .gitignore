@@ -1,6 +1,7 @@
 # general things to ignore
 build/
 dist/
+!dist/Engineer-Field-Kit-Windows-x64-portable.zip
 !dist/app.exe
 *.egg-info/
 *.egg
