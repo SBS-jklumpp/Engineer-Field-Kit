@@ -1,6 +1,16 @@
 {
   "dark_mode": true,
-  "port_station_collapsed": true,
+  "port_station_collapsed": false,
+  "config_mode": false,
+  "layout_state": {
+    "window_state": "zoomed",
+    "window_geometry": "1536x889+-8+-8",
+    "normal_window_geometry": "860x540+338+140",
+    "main_split_sash": 471,
+    "plot_split_sash": 0,
+    "sample_format_expanded": false,
+    "active_tab_text": "Test Results"
+  },
   "sample_setup_defaults": {
     "tsr_fields": [
       "red_phase",
@@ -200,14 +210,5 @@
       "plot_session": false,
       "live_default": false
     }
-  ],
-  "config_mode": false,
-  "layout_state": {
-    "window_state": "zoomed",
-    "window_geometry": "1536x889+-8+-8",
-    "main_split_sash": 405,
-    "plot_split_sash": 0,
-    "sample_format_expanded": false,
-    "active_tab_text": "Test Results"
-  }
+  ]
 }

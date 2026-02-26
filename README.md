@@ -1,148 +1,315 @@
-﻿# Seabird-Scientific Digital Sensor Workbench - End User Help
+﻿# Sea-Bird Scientific Digital Sensor Workbench (SBS DSW)
 
-This guide explains how to operate the app as a bench/tooling user.
+Version: `v1.1.0`
 
-## What This Tool Does
+This file is the primary end-user guide and is the source opened by the in-app `Help` link.
 
-Seabird-Scientific Digital Sensor Workbench combines:
-- COM port connection management
-- Automated unit test runs
-- Live plotting during acquisition
-- Per-port serial debug consoles
-- Session result review and export
+## Start Here
 
-Use it when you need to connect one or more instruments, run repeatable sample-based tests, and inspect results quickly.
+- New user: go to [5-Minute Quickstart](#5-minute-quickstart)
+- Need a specific control name: go to [Panel Reference](#panel-reference)
 
-## Basic Workflow (Quick Start)
+## Quick Navigation
 
-1. Connect sensors/devices and open the app.
-2. In Connection, choose port/baud and connect ports.
-3. In Test Setup, confirm Operator and setup fields.
-4. In Actions, run `Run Unit Test (all connected)`.
-5. Watch Live Plot and Run Log while the run executes.
-6. Review results in Test Results and export if needed.
+| I need to... | Go here |
+|---|---|
+| connect ports and start a test | [5-Minute Quickstart](#5-minute-quickstart) |
+| understand every button in the app | [Panel Reference](#panel-reference) |
+| change parser fields and units | [Generic Sample Format (Parser + Mapping)](#generic-sample-format-parser--mapping) |
+| compare current run to an old session | [Session Plot and Comparison](#session-plot-and-comparison) |
+| find where files are saved | [Output Files and Folder Structure](#output-files-and-folder-structure) |
+| troubleshoot run issues | [Troubleshooting by Symptom](#troubleshooting-by-symptom) |
 
-## Connection Panel Buttons
+## FAQ (Quick Answers)
 
-- `Refresh Ports`: Rescan available COM ports.
-- `Connect Selected`: Connect only the currently selected COM port.
-- `Reconnect @ Baud`: Disconnect and reconnect selected port using current baud.
-- `Disconnect Selected`: Disconnect the selected COM port.
-- `Connect All`: Connect all detected ports (up to app limit).
-- `Disconnect All`: Disconnect every connected port.
-- `Hide/Show Port Station View`: Collapse/expand the card view of connected ports.
-- `About`: Opens this help file in your browser.
+| Question | Short answer | Details |
+|---|---|---|
+| How do I start a run fast? | Connect port, fill `Operator`, set `Samples`, click `Run Test`. | [5-Minute Quickstart](#5-minute-quickstart) |
+| Why is `Run Test` disabled? | No connected port, missing `Operator`, or run already active. | [Troubleshooting by Symptom](#troubleshooting-by-symptom) |
+| Where do I change parser settings? | Open `Config` or `Show Setup` in `Live Plot`. | [Generic Sample Format (Parser + Mapping)](#generic-sample-format-parser--mapping) |
+| How do I compare to a previous session? | Open `Session Plot`, then load a reference session JSON. | [Session Plot and Comparison](#session-plot-and-comparison) |
+| Where are output files saved? | Under `Results Root` in session and per-serial folders. | [Output Files and Folder Structure](#output-files-and-folder-structure) |
+| Can I test multiple ports at once? | Yes, runs execute in parallel across connected ports. | [Actions](#actions) |
+| How do I export session results? | Click `Save JSON` in `Actions`. | [Actions](#actions) |
+| How do I export serial console traffic? | Use `Export Console CSV` in `Serial Consoles`. | [Serial Consoles](#serial-consoles) |
+| How do I hide or show sample CSV paths? | Click `CSV Column` in `Actions`. | [Actions](#actions) |
+| What do `PASS`, `WARN`, `FAIL` mean? | They are noise-based severity levels. | [Severity Logic](#severity-logic) |
 
-## Test Setup Fields
+## What This Application Does
 
-- `Operator`: Required before test run can start.
-- `Bath ID`: Optional identifier for current setup.
-- `Notes`: Optional run/session note.
-- `Bath Temp (C)`: Optional setup metadata.
-- `Salinity (PSU)`: Read-only in this workflow.
-- `Samples`: Number of samples per run.
-- `Results Root` + `Browse`: Folder root where session/unit outputs are written.
+SBS DSW is a bench workflow tool for digital sensors. It combines:
 
-## Actions Panel Buttons
+- multi-port serial connection management (up to 10 COM ports)
+- repeatable sample-based test execution
+- live plotting during runs
+- configurable sample parsing and field mapping
+- per-port serial debug consoles
+- session history, comparison plotting, and exportable artifacts
 
-- `Run Unit Test (all connected)`: Starts parallel run on all currently connected ports.
-- `Save Session JSON`: Writes current session rows to a JSON file.
-- `Reset Session`: Clears current table/session and starts a new session.
-- `Show Plot`: Switches to Live Plot tab.
-- `Show Console`: Switches to Serial Consoles tab.
-- `Detach Console`: Pops console tab into separate window.
-- `Plot Session`: Plots current session summary data.
-- `Load Session Plot`: Load a prior session and plot it.
-- `Reload Current Session JSON`: Reload current session JSON for plotting.
-- `Toggle CSV Column`: Show/hide sample CSV path column in results grid.
-- `Dark Mode`: Toggle dark/light theme.
+## What Is New In `v1.1.0`
 
-## Test Results Tab
+- Header quick actions: `Results`, `Live`, `Config`, `Reset`
+- Config Mode for parser setup-first workflow
+- Generic Sample Format editor:
+  - quick setup from one sample line
+  - parser profiles (`Save Profile` / `Load Profile`)
+  - per-field units and scaling
+  - derived expressions
+  - min/max/stuck-run rule flags
+- Parallel multi-port batch runs with `Runs`, `Delay (s)`, and `Runs left`
+- Session comparison plot with reference JSON loading
+- Detachable serial console and display modes (`ASCII`, `HEX`, `DEC`, `BIN`)
 
-- Table columns include timestamp, port, serial, noise, voltage statistics, flags, and raw sample CSV path.
-- Click a column header to sort ascending/descending.
-- Use `Toggle CSV Column` to include/exclude raw sample path visibility.
+## 5-Minute Quickstart
 
-## Live Plot Tab
+1. Launch `sbs_dsw.exe`.
+2. In `Connection`, click `Refresh Ports`, choose COM port and baud, then click `Connect Selected` (or `Connect All`).
+3. In `Test Setup`, enter `Operator`, set `Samples` (minimum 20), and confirm `Results Root`.
+4. In `Actions`, set `Runs` and optional `Delay (s)`, then click `Run Test`.
+5. Monitor `Live Plot`, `Run Log`, and `Port Station View`.
+6. Review completed rows in `Test Results`.
+7. Click `Save JSON` when done.
 
-### Generic Sample Format Area
-- Used to define parser behavior for incoming sample lines.
-- You can map fields, descriptions, units, scaling, derived expressions, and plotting inclusion.
+## Command Examples
 
-### Current Run Live View Controls
-- `Plot field`: Select which measureand to graph live.
-- `Refresh Plot`: Redraw using latest data/control settings.
-- `Auto Y`: Automatic y-axis scaling.
-- `Ymin`, `Ymax`: Manual axis limits when Auto Y is off.
-- `Points`: Toggle points overlay.
-- `Visible Ports`: Choose which connected ports appear on plot.
-- `X Start`, `X End`: Restrict sample index range shown.
-- `Std Dev`, `Samples`: Quick indicators for current plotted stream.
+### Run from source checkout
 
-## Serial Consoles Tab
+```powershell
+python -m venv .venv
+.venv\Scripts\Activate.ps1
+pip install .
+python sbs_dsw.py
+```
 
-Each port has its own console tab for manual TX/RX interaction.
+### Run packaged executable
 
-- `Send`: Sends typed command to selected port.
-- `Read`: Performs short read window and prints responses.
-- `Stream`: Continuously read/display incoming lines.
-- `Clear Selected Debug Tab`: Clears active debug output.
-- `Export Console CSV`: Saves captured TX/RX console rows.
-- `CR` / `LF`: Include carriage return / line feed on transmitted command.
-- Display mode: `ASCII`, `HEX`, `DEC`, `BIN`.
+```powershell
+.\dist\sbs_dsw.exe
+```
 
-## Port Station View (Card Grid)
+### Inspect latest session outputs
 
-Each connected port card shows:
-- Slot number
-- Port name
-- Current serial number
-- Current status badge (`CONNECTED`, `RUNNING`, `PASS`, etc.)
+```powershell
+Get-ChildItem .\SBE83\sessions\PreCalTest | Sort-Object LastWriteTime -Descending | Select-Object -First 10
+```
 
-## Output Files
+## UI Map
 
-Under your Results Root, the app writes session and per-unit artifacts (CSV/JSON/log files).  
-Use these for traceability, quick comparisons, and offline review.
+- Header links: `Help`, `About`, `Results`, `Live`, `Config`, `Reset`
+- Main cards: `Connection`, `Port Station View`, `Test Setup`, `Actions`
+- Tabs: `Test Results`, `Live Plot`, `Run Log`, `Serial Consoles`
 
-## Plotting Examples
+## Core Workflow
 
-### Example 1: Check stability on Red Phase
-1. Open Live Plot.
-2. Set `Plot field` to `Red Phase`.
-3. Enable `Auto Y`.
-4. Start a run.
-5. Watch `Std Dev` value settle; unstable units usually show larger spread and noisier trend.
+1. Connect ports in `Connection`.
+2. Enter run metadata in `Test Setup`.
+3. Start run from `Actions`.
+4. Watch live behavior in `Live Plot` and status in `Run Log`.
+5. Review metrics in `Test Results`.
+6. Save session and exports.
 
-### Example 2: Compare only two ports
-1. In Live Plot, click `Visible Ports`.
-2. Keep only two ports checked.
-3. Set `Plot field` to `Blue Voltage` (or relevant field).
-4. Use `X Start`/`X End` to zoom on transient sections.
+## Panel Reference
 
-### Example 3: Manual Y limits for subtle drift
-1. Disable `Auto Y`.
-2. Enter narrow `Ymin`/`Ymax` bounds around expected nominal.
-3. Click `Refresh Plot`.
-4. Small drift becomes visible that auto scaling might hide.
+### Connection
 
-## Common Issues
+- `Refresh Ports`: re-scan available COM ports
+- `Connect Selected`: open selected COM port
+- `Reconnect @ Baud`: reconnect selected port at current baud
+- `Disconnect Selected`: close selected COM port
+- `Connect All`: connect all detected ports (max 10)
+- `Disconnect All`: close all connected ports
+- `Hide/Show Port Station`: collapse or expand card grid
 
-- Run button disabled:
-  - Ensure at least one port is connected.
-  - Ensure `Operator` is filled.
-  - Ensure no run is currently active.
+Status row:
 
-- No live updates:
-  - Confirm selected field exists in parser mapping.
-  - Confirm port is connected and actively streaming samples.
+- connected count
+- connected list
 
-- Console command shows no response:
-  - Verify CR/LF settings expected by device.
-  - Try `Read` after `Send`.
-  - Check baud rate and connection health.
+### Port Station View
 
-## Notes
+Each card shows:
 
-- This tool helps accelerate diagnosis and bench workflows.
-- It is not a replacement for formal production QA/calibration systems.
+- slot
+- COM port
+- serial (`SN:`)
+- state badge
 
+Typical status flow: `CONNECTED` -> `RUNNING` -> `PASS/WARN/FAIL` -> `COMPLETE`.
+
+### Test Setup
+
+| Field | Purpose | Required |
+|---|---|---|
+| `Operator` | Operator identifier for traceability | Yes |
+| `Bath ID` | Optional setup ID | No |
+| `Notes` | Run notes | No |
+| `Bath Temp (C)` | Environmental metadata | No |
+| `Salinity (PSU)` | Environmental metadata | No |
+| `Samples` | samples per run (minimum 20) | Yes |
+| `Results Root` | top folder where output folders/files are written | Yes |
+
+### Actions
+
+Buttons:
+
+- `Run Test`: starts parallel runs on all connected ports
+- `Save JSON`: saves current session rows to session JSON
+- `Reset`: starts a new session and clears table
+- `Live Plot`: jumps to Live Plot tab
+- `Console`: jumps to Serial Consoles tab
+- `Detach`: undock/dock console tab
+- `Session Plot`: plot current session
+- `Load Session`: load a different session JSON and plot
+- `Reload JSON`: reload current session JSON for plotting
+- `CSV Column`: show/hide `sample_csv` column in results table
+
+Run controls:
+
+- `Runs`: batch count per connected port
+- `Delay (s)`: wait time between runs in a batch
+- `Dark Mode`: theme toggle
+- `Units tested`: unique serial counter (session limit is 10)
+- `Runs left`: active batch progress by port
+
+### Test Results
+
+Table includes timestamp, port, serial, noise/voltage stats, flags, and sample CSV path.
+
+Tips:
+
+- click column headers to sort
+- use `CSV Column` to show/hide sample CSV path
+- inspect `flags` for limit and data-quality issues
+
+### Live Plot
+
+Controls:
+
+- `Plot field`, `Refresh Plot`
+- `Auto Y`, `Ymin`, `Ymax`
+- `Points`
+- `Filter Ports`, `Visible Ports`
+- `X Start`, `X End`
+- `Std Dev`, `Samples`
+
+Right pane shows recent parsed sample lines during active runs.
+
+### Serial Consoles
+
+Per-port controls:
+
+- `Send`, `Read`, `Stream`
+
+Global console controls:
+
+- `Clear Selected Debug Tab`
+- `Export Console CSV`
+- `CR`, `LF`
+- display mode: `ASCII`, `HEX`, `DEC`, `BIN`
+
+## Generic Sample Format (Parser + Mapping)
+
+Open with `Config` in the header or `Show Setup` in `Live Plot`.
+
+Quick setup:
+
+1. Paste one line into `Example sample`.
+2. Set `Delimiter`.
+3. Click `Quick Setup + Plot`.
+
+Parser controls:
+
+- `Sample Cmd`: command sent for each sample (default `tsr`)
+- `Trim Prefix`: remove fixed prefix before split
+- `Start Token`: ignore first N tokens
+- `Regex`: extract payload before split
+
+Field editor columns:
+
+- `Field Key`, `Description`
+- `Unit`, `Scale` (raw/milli/micro/kilo)
+- `Min`, `Max`, `StuckN`
+- `Derived Expr`
+- `Live`, `Session`, `Default`
+
+Profiles and apply:
+
+- `Save Profile`, `Load Profile`
+- `Apply Measureands`
+- `Reset Default`
+
+## Session Plot and Comparison
+
+`Session Plot` opens a dedicated plot window.
+
+Use it to:
+
+- choose a numeric metric
+- filter current session by serial
+- load a reference session JSON
+- filter reference serials
+- pause/resume redraws
+
+## Output Files and Folder Structure
+
+Default output root for packaged exe:
+
+- `<exe folder>/SBE83`
+
+Within `Results Root`:
+
+- `sessions/PreCalTest/sbe83_session_<session_id>.csv`
+- `sessions/PreCalTest/sbe83_session_<session_id>.json`
+- `sessions/PreCalTest/profiles/*.json`
+- `<serial>/PreCalTest/SBS83_SN<serial>_<timestamp>_samples.csv`
+- `<serial>/PreCalTest/SBS83_SN<serial>_<timestamp>.log`
+- `<serial>/PreCalTest/SBS83_SN<serial>_<timestamp>_summary.json`
+
+## Severity Logic
+
+- `PASS`: both red/blue noise <= 10 ns
+- `WARN`: either noise > 10 ns and <= 20 ns
+- `FAIL`: either noise > 20 ns
+- `UNKNOWN`: insufficient numeric data
+
+## Troubleshooting by Symptom
+
+### `Run Test` is disabled
+
+- connect at least one port
+- fill `Operator`
+- make sure no run is currently active
+
+### No samples collected
+
+- verify `Sample Cmd`
+- verify baud and cable path
+- verify delimiter/regex/start token settings
+
+### Plot looks flat or incorrect
+
+- verify selected `Plot field` exists in parser config
+- verify unit/scale and min/max settings
+- check `Run Log` for parse or timeout issues
+
+### Console command has no response
+
+- adjust `CR` and `LF`
+- use `Read` after `Send`
+- confirm the port is connected and idle
+
+## Documentation Map
+
+## Screenshot Guidance (Optional)
+
+If you want visual callouts, add images under `docs/images/` for:
+
+1. main dashboard with Connection + Actions
+2. Live Plot during active run
+3. Config Mode with Generic Sample Format expanded
+4. Session Plot with reference session loaded
+5. Serial Console with stream and display mode controls
+
+## Soon To Be Expanded
+
+- Standalone quickstart addendum draft: `docs/QUICKSTART_ONE_PAGE.md`

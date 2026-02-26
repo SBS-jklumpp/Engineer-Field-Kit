@@ -179,6 +179,12 @@ class SBE83GuiApp:
         self.root = root
         self.root.title(APP_NAME)
         self.app_config = self._load_app_config()
+        self._last_normal_geometry = None
+        layout_state = self.app_config.get("layout_state", {})
+        if isinstance(layout_state, dict):
+            saved_normal = layout_state.get("normal_window_geometry")
+            if isinstance(saved_normal, str) and saved_normal.strip():
+                self._last_normal_geometry = saved_normal.strip()
         self._set_initial_window_size()
         self._apply_saved_window_state()
         self.sample_setup_defaults = self._load_sample_setup_defaults(self.app_config.get("sample_setup_defaults"))
@@ -431,13 +437,19 @@ class SBE83GuiApp:
         layout = self.app_config.get("layout_state", {})
         if not isinstance(layout, dict):
             return
+        state = str(layout.get("window_state", "")).lower()
+        normal_geometry = layout.get("normal_window_geometry")
+        if isinstance(normal_geometry, str) and normal_geometry.strip():
+            self._last_normal_geometry = normal_geometry.strip()
+
         geometry = layout.get("window_geometry")
+        if state == "zoomed" and isinstance(self._last_normal_geometry, str) and self._last_normal_geometry.strip():
+            geometry = self._last_normal_geometry.strip()
         if isinstance(geometry, str) and geometry.strip():
             try:
                 self.root.geometry(geometry.strip())
             except Exception:
                 pass
-        state = str(layout.get("window_state", "")).lower()
         if state == "zoomed":
             try:
                 self.root.state("zoomed")
@@ -457,7 +469,12 @@ class SBE83GuiApp:
             state = "normal"
         out["window_state"] = state
         try:
-            out["window_geometry"] = self.root.winfo_geometry()
+            current_geometry = self.root.winfo_geometry()
+            out["window_geometry"] = current_geometry
+            if state == "normal" and isinstance(current_geometry, str) and current_geometry.strip():
+                self._last_normal_geometry = current_geometry.strip()
+            if isinstance(self._last_normal_geometry, str) and self._last_normal_geometry.strip():
+                out["normal_window_geometry"] = self._last_normal_geometry.strip()
         except Exception:
             pass
         if hasattr(self, "main_split"):
@@ -588,6 +605,13 @@ class SBE83GuiApp:
                     continue
 
     def _on_root_configure(self, _event=None):
+        try:
+            if str(self.root.state()).lower() == "normal":
+                geom = self.root.winfo_geometry()
+                if isinstance(geom, str) and geom.strip():
+                    self._last_normal_geometry = geom.strip()
+        except Exception:
+            pass
         self._enforce_main_notebook_min_height()
         self._adjust_plot_split_height(force=False)
         self._schedule_layout_save(delay_ms=800)
@@ -1425,6 +1449,7 @@ class SBE83GuiApp:
         self._apply_measureand_config(show_message=False)
         self.root.after(40, self._apply_startup_layout)
         self.root.bind("<Configure>", self._on_root_configure, add="+")
+        self.root.bind("<ButtonRelease-1>", lambda _e: self._schedule_layout_save(delay_ms=250), add="+")
         self.main_split.bind("<ButtonRelease-1>", lambda _e: self._schedule_layout_save(delay_ms=250), add="+")
         self.plot_split.bind("<ButtonRelease-1>", lambda _e: self._schedule_layout_save(delay_ms=250), add="+")
         self.main_notebook.bind("<<NotebookTabChanged>>", lambda _e: self._schedule_layout_save(delay_ms=250), add="+")
@@ -1617,6 +1642,9 @@ class SBE83GuiApp:
     def open_readme_help(self):
         candidates = []
         if getattr(sys, "frozen", False):
+            meipass = getattr(sys, "_MEIPASS", "")
+            if meipass:
+                candidates.append(Path(meipass) / "README.md")
             exe_dir = Path(sys.executable).resolve().parent
             candidates.append(exe_dir / "README.md")
             candidates.append(exe_dir.parent / "README.md")
@@ -1638,11 +1666,15 @@ class SBE83GuiApp:
             body_html = self._render_markdown_html(markdown_text)
             if not body_html:
                 body_html = self._markdown_to_basic_html(markdown_text)
+            base_href = readme_path.parent.resolve().as_uri()
+            if not base_href.endswith("/"):
+                base_href += "/"
             page = f"""<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <base href="{html.escape(base_href, quote=True)}">
   <title>{APP_NAME} Help</title>
   <style>
     body {{ font-family: Segoe UI, Arial, sans-serif; max-width: 980px; margin: 24px auto; padding: 0 16px; line-height: 1.55; background:#f8fafc; color:#0f172a; }}
@@ -1658,6 +1690,7 @@ class SBE83GuiApp:
     th, td {{ border: 1px solid #cbd5e1; padding: 8px 10px; text-align: left; }}
     th {{ background: #e2e8f0; }}
     blockquote {{ margin: 12px 0; padding: 8px 12px; border-left: 3px solid #94a3b8; background: #f1f5f9; }}
+    img {{ max-width: 100%; height: auto; border: 1px solid #cbd5e1; border-radius: 8px; }}
     .hdr {{ margin-bottom: 12px; padding-bottom: 8px; border-bottom: 1px solid #cbd5e1; }}
   </style>
 </head>
@@ -4251,8 +4284,5 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-
-
 
 

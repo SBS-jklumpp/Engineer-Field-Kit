@@ -1,8 +1,9 @@
-# general things to ignore
+# build outputs
 build/
 dist/
-!dist/Engineer-Field-Kit-Windows-x64-portable.zip
-!dist/app.exe
+!dist/sbs_dsw.exe
+
+# python artifacts
 *.egg-info/
 *.egg
 *.py[cod]
@@ -10,6 +11,13 @@ __pycache__/
 *.so
 *~
 
-# due to using tox and pytest
-.tox
-.cache
+# local env and tooling caches
+.venv/
+.tox/
+.cache/
+.pytest_cache/
+
+# runtime-local app config/state
+sbs_dsw_config.json
+src/engineers_field_kit_multitool/engineers_field_kit_multitool_config.json
+src/engineers_field_kit_multitool/sessions_local/

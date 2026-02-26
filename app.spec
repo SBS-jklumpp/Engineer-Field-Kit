@@ -5,7 +5,7 @@ a = Analysis(
     ['sbs_dsw.py'],
     pathex=[],
     binaries=[],
-    datas=[],
+    datas=[('README.md', '.'), ('docs/QUICKSTART_ONE_PAGE.md', 'docs')],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},
