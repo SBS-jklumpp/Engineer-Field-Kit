@@ -1,6 +1,6 @@
 [project]
 name = "sbs-dsw"
-version = "1.0.0-alpha.0"
+version = "1.1.2"
 description = "Seabird-Scientific Digital Sensor Workbench"
 readme = "README.md"
 requires-python = ">=3.9"
