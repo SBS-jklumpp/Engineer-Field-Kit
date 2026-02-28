@@ -15,7 +15,7 @@ This file is the primary end-user guide and is the source opened by the in-app `
 |---|---|
 | connect ports and start a test | [Fast Path](docs/QUICKSTART_ONE_PAGE.md#fast-path) |
 | understand every button in the app | [Panel Reference](#panel-reference) |
-| change parser fields and units | [Generic Sample Format (Parser + Mapping)](#generic-sample-format-parser--mapping) |
+| change parser fields and units | [Generic Sample Format (Parser + Mapping)](#generic-sample-format-parser-mapping) |
 | compare current run to an old session | [Session Plot and Comparison](#session-plot-and-comparison) |
 | find where files are saved | [Output Files and Folder Structure](#output-files-and-folder-structure) |
 | troubleshoot run issues | [Troubleshooting by Symptom](#troubleshooting-by-symptom) |
@@ -26,7 +26,7 @@ This file is the primary end-user guide and is the source opened by the in-app `
 |---|---|---|
 | How do I start a run fast? | Connect port, fill `Operator`, set `Samples`, click `Run Test`. | [Fast Path](docs/QUICKSTART_ONE_PAGE.md#fast-path) |
 | Why is `Run Test` disabled? | No connected port, missing `Operator`, or run already active. | [Troubleshooting by Symptom](#troubleshooting-by-symptom) |
-| Where do I change parser settings? | Open `Config` or `Show Setup` in `Live Plot`. | [Generic Sample Format (Parser + Mapping)](#generic-sample-format-parser--mapping) |
+| Where do I change parser settings? | Open the `Sample Setup` tab or click `Config`. | [Generic Sample Format (Parser + Mapping)](#generic-sample-format-parser-mapping) |
 | How do I compare to a previous session? | Open `Session Plot`, then load a reference session JSON. | [Session Plot and Comparison](#session-plot-and-comparison) |
 | Where are output files saved? | Under `Results Root` in session and per-serial folders. | [Output Files and Folder Structure](#output-files-and-folder-structure) |
 | Can I test multiple ports at once? | Yes, runs execute in parallel across connected ports. | [Actions](#actions) |
@@ -211,7 +211,7 @@ Global console controls:
 
 ## Generic Sample Format (Parser + Mapping)
 
-Open with `Config` in the header or `Show Setup` in `Live Plot`.
+Open the `Sample Setup` tab, or click `Config` in the header.
 
 Quick setup:
 
@@ -308,7 +308,7 @@ If you want visual callouts, add images under `docs/images/` for:
 
 1. main dashboard with Connection + Actions
 2. Live Plot during active run
-3. Config Mode with Generic Sample Format expanded
+3. Sample Setup tab with Generic Sample Format
 4. Session Plot with reference session loaded
 5. Serial Console with stream and display mode controls
 

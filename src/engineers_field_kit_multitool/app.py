@@ -60,6 +60,7 @@ FAIL_NS = 20.0
 MAX_UNITS_PER_SESSION = 10
 MAX_PORTS = 10
 PRECAL_TEST_SUBDIR = "PreCalTest"
+DEBUG_RESULTS_SUBDIR = "SBE83_Debug"
 DEFAULT_OPERATOR = "Justin"
 DEFAULT_SALINITY_PSU = "0.0"
 COMM_RETRY_TIMEOUT_S = 12.0
@@ -197,6 +198,13 @@ class SBE83GuiApp:
         self.dark_mode_var = tk.BooleanVar(value=bool(self.app_config.get("dark_mode", True)))
         self.port_station_collapsed_var = tk.BooleanVar(value=bool(self.app_config.get("port_station_collapsed", False)))
         self.config_mode_var = tk.BooleanVar(value=bool(self.app_config.get("config_mode", False)))
+        self.debug_mode_var = tk.BooleanVar(value=bool(self.app_config.get("debug_mode", False)))
+        self.mode_choice_var = tk.StringVar(value="debug" if bool(self.debug_mode_var.get()) else "production")
+        self.mode_status_var = tk.StringVar(value="")
+        stored_non_debug_root = str(self.app_config.get("non_debug_results_root", "")).strip()
+        self.non_debug_results_root = stored_non_debug_root or SENSOR_TEST_DIR
+        self.test_setup_visible = not bool(self.app_config.get("test_setup_collapsed", False))
+        self.setup_manual_override = False
         apply_theme(self.root, dark_mode=bool(self.dark_mode_var.get()))
 
         self.serial_pool = {}  # port -> serial.Serial
@@ -209,7 +217,7 @@ class SBE83GuiApp:
         self.session_id = self.session_start.strftime("%Y%m%d_%H%M%S")
         self.session_rows = []
         self.session_serials = set()
-        self.session_dir = os.path.join(SENSOR_TEST_DIR, "sessions", PRECAL_TEST_SUBDIR)
+        self.session_dir = os.path.join(self.non_debug_results_root, "sessions", PRECAL_TEST_SUBDIR)
         os.makedirs(self.session_dir, exist_ok=True)
         self.session_csv = os.path.join(self.session_dir, f"sbe83_session_{self.session_id}.csv")
         self.live_run_series_by_port = {}  # port -> field -> list[float]
@@ -268,7 +276,13 @@ class SBE83GuiApp:
         self._layout_save_after_id = None
 
         self._build_ui()
-        self._apply_results_root(SENSOR_TEST_DIR, log_change=False)
+        self._apply_results_root(self.non_debug_results_root, log_change=False)
+        self._set_test_setup_visibility(self.test_setup_visible, persist=False)
+        if self.debug_mode_var.get():
+            self._set_debug_mode(True, persist=False, announce=False)
+        else:
+            self._update_results_root_controls()
+            self._update_mode_status_text()
         self.refresh_ports()
         self._apply_theme(persist=False)
         self.root.after(60, self._process_ui_events)
@@ -404,6 +418,10 @@ class SBE83GuiApp:
         data["port_station_collapsed"] = bool(self.port_station_collapsed_var.get())
         if hasattr(self, "config_mode_var"):
             data["config_mode"] = bool(self.config_mode_var.get())
+        if hasattr(self, "debug_mode_var"):
+            data["debug_mode"] = bool(self.debug_mode_var.get())
+        data["non_debug_results_root"] = str(getattr(self, "non_debug_results_root", SENSOR_TEST_DIR)).strip() or SENSOR_TEST_DIR
+        data["test_setup_collapsed"] = not bool(getattr(self, "test_setup_visible", True))
         data["layout_state"] = self._capture_layout_state()
         if "sample_setup_defaults" not in data:
             data["sample_setup_defaults"] = self._snapshot_sample_setup_defaults()
@@ -573,9 +591,6 @@ class SBE83GuiApp:
         layout = self.app_config.get("layout_state", {})
         if not isinstance(layout, dict):
             return
-        expanded = layout.get("sample_format_expanded")
-        if isinstance(expanded, bool) and expanded != self.sample_format_expanded:
-            self.toggle_sample_format_panel(expanded=expanded)
         self.root.update_idletasks()
         main_sash = layout.get("main_split_sash")
         if isinstance(main_sash, int) and hasattr(self, "main_split"):
@@ -584,15 +599,6 @@ class SBE83GuiApp:
                 if limits is not None:
                     lo, hi = limits
                     self.main_split.sashpos(0, max(lo, min(hi, main_sash)))
-            except Exception:
-                pass
-        plot_sash = layout.get("plot_split_sash")
-        if isinstance(plot_sash, int) and hasattr(self, "plot_split"):
-            try:
-                limits = self._plot_split_limits()
-                if limits is not None:
-                    lo, hi = limits
-                    self.plot_split.sashpos(0, max(lo, min(hi, plot_sash)))
             except Exception:
                 pass
         tab_text = str(layout.get("active_tab_text", "")).strip().lower()
@@ -849,44 +855,9 @@ class SBE83GuiApp:
         self._update_config_mode_button()
         if enabled:
             try:
-                self.main_notebook.select(self.plot_tab)
+                self.main_notebook.select(self.sample_setup_tab)
             except Exception:
                 pass
-            if not self.sample_format_expanded:
-                self.toggle_sample_format_panel(expanded=True)
-            if hasattr(self, "main_split"):
-                self.root.update_idletasks()
-                try:
-                    total_h = int(self.main_split.winfo_height())
-                except Exception:
-                    total_h = 0
-                if total_h >= 220:
-                    top_ratio = 0.48 if self._layout_profile() == "wide" else 0.56
-                    top_h = min(max(220, int(total_h * top_ratio)), total_h - 180)
-                    limits = self._main_split_limits()
-                    if limits is not None:
-                        lo, hi = limits
-                        top_h = max(lo, min(hi, top_h))
-                    try:
-                        self.main_split.sashpos(0, top_h)
-                    except Exception:
-                        pass
-            if hasattr(self, "plot_split"):
-                self.root.update_idletasks()
-                try:
-                    p_total = int(self.plot_split.winfo_height())
-                except Exception:
-                    p_total = 0
-                if p_total >= 240:
-                    setup_h = min(max(int(p_total * 0.45), 220), p_total - 170)
-                    limits = self._plot_split_limits()
-                    if limits is not None:
-                        lo, hi = limits
-                        setup_h = max(lo, min(hi, setup_h))
-                    try:
-                        self.plot_split.sashpos(0, setup_h)
-                    except Exception:
-                        pass
         else:
             self._focus_live_layout(update_mode=False)
         if persist:
@@ -935,8 +906,6 @@ class SBE83GuiApp:
                 self.main_notebook.select(self.plot_tab)
             except Exception:
                 pass
-        if self.sample_format_expanded:
-            self.toggle_sample_format_panel(expanded=False)
         if hasattr(self, "main_split"):
             self.root.update_idletasks()
             try:
@@ -953,18 +922,6 @@ class SBE83GuiApp:
                     top_h = max(lo, min(hi, top_h))
                 try:
                     self.main_split.sashpos(0, top_h)
-                except Exception:
-                    pass
-        if hasattr(self, "plot_split"):
-            self.root.update_idletasks()
-            try:
-                p_total = int(self.plot_split.winfo_height())
-            except Exception:
-                p_total = 0
-            if p_total >= 240:
-                top_h = min(max(120, int(p_total * 0.16)), p_total - 170)
-                try:
-                    self.plot_split.sashpos(0, top_h)
                 except Exception:
                     pass
         self._save_app_config()
@@ -984,8 +941,6 @@ class SBE83GuiApp:
             state = ""
         if state != "zoomed":
             self._set_initial_window_size()
-        if getattr(self, "sample_format_expanded", False):
-            self.toggle_sample_format_panel(expanded=False)
         self.root.after(40, self._set_split_defaults)
         self.root.after(80, self._save_app_config)
 
@@ -997,7 +952,10 @@ class SBE83GuiApp:
             if hasattr(self, "port_station_toggle_btn"):
                 self.port_station_toggle_btn.configure(text="Show Port Station")
         else:
-            self.port_station_frame.pack(fill=tk.X, pady=2, before=self.setup_frame)
+            target = self.setup_frame
+            if not bool(getattr(self, "test_setup_visible", True)) and hasattr(self, "actions_frame"):
+                target = self.actions_frame
+            self.port_station_frame.pack(fill=tk.X, pady=2, before=target)
             if hasattr(self, "port_station_toggle_btn"):
                 self.port_station_toggle_btn.configure(text="Hide Port Station")
         if persist:
@@ -1006,6 +964,53 @@ class SBE83GuiApp:
     def _toggle_port_station_visibility(self):
         self.port_station_collapsed_var.set(not self.port_station_collapsed_var.get())
         self._apply_port_station_visibility(persist=True)
+
+    def _fit_main_split_to_top_content(self):
+        if not hasattr(self, "main_split") or not hasattr(self, "top_frame"):
+            return
+        self.root.update_idletasks()
+        try:
+            total_h = int(self.main_split.winfo_height())
+            req_top_h = int(self.top_frame.winfo_reqheight()) + 12
+        except Exception:
+            return
+        if total_h < 220:
+            return
+        limits = self._main_split_limits()
+        if limits is None:
+            return
+        lo, hi = limits
+        target = max(lo, min(hi, req_top_h))
+        try:
+            self.main_split.sashpos(0, target)
+        except Exception:
+            pass
+
+    def _set_test_setup_visibility(self, visible, auto=False, persist=True):
+        visible = bool(visible)
+        self.test_setup_visible = visible
+        if visible:
+            if not self.setup_frame.winfo_manager():
+                self.setup_frame.pack(fill=tk.X, pady=4, before=self.actions_frame)
+        else:
+            if self.setup_frame.winfo_manager():
+                self.setup_frame.pack_forget()
+        if hasattr(self, "setup_toggle_btn"):
+            self.setup_toggle_btn.configure(text="Hide Test Setup" if visible else "Show Test Setup")
+        self._apply_port_station_visibility(persist=False)
+        self.root.after(40, self._fit_main_split_to_top_content)
+        if auto:
+            self.log("Test Setup auto-hidden after all fields were entered.")
+        if persist:
+            self._save_app_config()
+
+    def _toggle_test_setup_visibility(self):
+        next_visible = not bool(self.test_setup_visible)
+        if next_visible:
+            self.setup_manual_override = True
+        else:
+            self.setup_manual_override = False
+        self._set_test_setup_visibility(next_visible, auto=False, persist=True)
 
     def _build_ui(self):
         self.root.minsize(860, 540)
@@ -1207,10 +1212,12 @@ class SBE83GuiApp:
         ttk.Label(self.setup_frame, text="Samples").grid(row=1, column=4, sticky="e", padx=(0, 6), pady=(0, 6))
         ttk.Spinbox(self.setup_frame, from_=20, to=500, textvariable=self.sample_count_var, width=8).grid(row=1, column=5, pady=(0, 6), sticky="ew")
         ttk.Label(self.setup_frame, text="Results Root").grid(row=2, column=0, sticky="e", padx=(0, 6), pady=(2, 0))
-        ttk.Entry(self.setup_frame, textvariable=self.results_root_var, width=78, state="readonly").grid(
+        self.results_root_entry = ttk.Entry(self.setup_frame, textvariable=self.results_root_var, width=78, state="readonly")
+        self.results_root_entry.grid(
             row=2, column=1, columnspan=4, padx=(0, 12), sticky="ew", pady=(2, 0)
         )
-        ttk.Button(self.setup_frame, text="Browse", command=self.browse_results_root).grid(
+        self.results_root_browse_btn = ttk.Button(self.setup_frame, text="Browse", command=self.browse_results_root)
+        self.results_root_browse_btn.grid(
             row=2, column=5, sticky="ew", pady=(2, 0)
         )
         for var in (
@@ -1219,14 +1226,16 @@ class SBE83GuiApp:
             self.bath_id_var,
             self.bath_temp_c_var,
             self.salinity_psu_var,
+            self.results_root_var,
+            self.sample_count_var,
         ):
             var.trace_add("write", self._on_setup_field_changed)
         self._apply_port_station_visibility(persist=False)
 
-        actions = ttk.LabelFrame(self.top_frame, text="Actions", padding=8)
-        actions.pack(fill=tk.X, pady=4)
-        actions.grid_columnconfigure(0, weight=1)
-        action_buttons = ttk.Frame(actions)
+        self.actions_frame = ttk.LabelFrame(self.top_frame, text="Actions", padding=8)
+        self.actions_frame.pack(fill=tk.X, pady=4)
+        self.actions_frame.grid_columnconfigure(0, weight=1)
+        action_buttons = ttk.Frame(self.actions_frame)
         action_buttons.grid(row=0, column=0, sticky="ew")
         for col in range(10):
             action_buttons.grid_columnconfigure(col, weight=1)
@@ -1262,18 +1271,37 @@ class SBE83GuiApp:
             row=0, column=9, padx=2, sticky="ew"
         )
 
-        action_status = ttk.Frame(actions)
+        action_status = ttk.Frame(self.actions_frame)
         action_status.grid(row=1, column=0, sticky="ew", pady=(8, 0))
-        action_status.grid_columnconfigure(8, weight=1)
+        action_status.grid_columnconfigure(10, weight=1)
         ttk.Label(action_status, text="Runs").grid(row=0, column=0, sticky="e")
         ttk.Spinbox(action_status, from_=1, to=50, textvariable=self.batch_run_count_var, width=6).grid(row=0, column=1, padx=(4, 16), sticky="w")
         ttk.Label(action_status, text="Delay (s)").grid(row=0, column=2, sticky="e")
         ttk.Spinbox(action_status, from_=0, to=300, increment=1, textvariable=self.batch_delay_s_var, width=6).grid(row=0, column=3, padx=(4, 16), sticky="w")
         ttk.Checkbutton(action_status, text="Dark Mode", variable=self.dark_mode_var, command=self._on_toggle_dark_mode).grid(row=0, column=4, padx=(0, 16), sticky="w")
+        ttk.Label(action_status, text="Mode").grid(row=0, column=5, sticky="e")
+        ttk.Radiobutton(
+            action_status,
+            text="Production",
+            variable=self.mode_choice_var,
+            value="production",
+            command=self._on_mode_choice_changed,
+        ).grid(row=0, column=6, padx=(4, 8), sticky="w")
+        ttk.Radiobutton(
+            action_status,
+            text="Debug",
+            variable=self.mode_choice_var,
+            value="debug",
+            command=self._on_mode_choice_changed,
+        ).grid(row=0, column=7, padx=(0, 16), sticky="w")
 
         self.limit_var = tk.StringVar(value=f"Units tested: 0 / {MAX_UNITS_PER_SESSION}")
-        ttk.Label(action_status, textvariable=self.limit_var, style="Accent.TLabel").grid(row=0, column=6, sticky="w")
-        ttk.Label(action_status, textvariable=self.runs_left_var, style="Muted.TLabel").grid(row=0, column=7, padx=(16, 0), sticky="w")
+        ttk.Label(action_status, textvariable=self.limit_var, style="Accent.TLabel").grid(row=0, column=8, sticky="w")
+        ttk.Label(action_status, textvariable=self.runs_left_var, style="Muted.TLabel").grid(row=0, column=9, padx=(16, 0), sticky="w")
+        self.setup_toggle_btn = ttk.Button(action_status, text="Hide Test Setup", command=self._toggle_test_setup_visibility)
+        self.setup_toggle_btn.grid(row=0, column=10, padx=(16, 0), sticky="e")
+        self.mode_status_entry = ttk.Entry(action_status, textvariable=self.mode_status_var, state="readonly")
+        self.mode_status_entry.grid(row=1, column=0, columnspan=11, pady=(8, 0), sticky="ew")
 
         self.main_notebook = ttk.Notebook(self.main_split)
         self.main_split.add(self.top_frame, weight=0)
@@ -1281,13 +1309,15 @@ class SBE83GuiApp:
 
         self.test_tab = ttk.Frame(self.main_notebook, padding=8)
         self.plot_tab = ttk.Frame(self.main_notebook, padding=8)
+        self.sample_setup_tab = ttk.Frame(self.main_notebook, padding=8)
         self.log_tab = ttk.Frame(self.main_notebook, padding=8)
         self.debug_tab = tk.Frame(self.main_notebook, padx=8, pady=8)
 
         self.main_notebook.add(self.test_tab, text="Test Results")
         self.main_notebook.add(self.plot_tab, text="Live Plot")
-        self.main_notebook.add(self.log_tab, text="Run Log")
         self.main_notebook.add(self.debug_tab, text="Serial Consoles")
+        self.main_notebook.add(self.log_tab, text="Run Log")
+        self.main_notebook.add(self.sample_setup_tab, text="Sample Setup")
 
         mid = ttk.Frame(self.test_tab)
         mid.pack(fill=tk.BOTH, expand=True)
@@ -1347,15 +1377,12 @@ class SBE83GuiApp:
         mid.rowconfigure(0, weight=1)
         mid.columnconfigure(0, weight=1)
 
-        self.plot_split = ttk.PanedWindow(self.plot_tab, orient=tk.VERTICAL)
-        self.plot_split.pack(fill=tk.BOTH, expand=True)
+        setup_panel = ttk.LabelFrame(self.sample_setup_tab, text="Generic Sample Format", padding=8)
+        setup_panel.pack(fill=tk.BOTH, expand=True)
+        self._build_sample_format_controls(setup_panel)
 
-        designer = ttk.LabelFrame(self.plot_split, text="Generic Sample Format", padding=8)
-        self._build_sample_format_controls(designer)
-
-        live = ttk.LabelFrame(self.plot_split, text="Current Run Live View", padding=8)
-        self.plot_split.add(designer, weight=2)
-        self.plot_split.add(live, weight=3)
+        live = ttk.LabelFrame(self.plot_tab, text="Current Run Live View", padding=8)
+        live.pack(fill=tk.BOTH, expand=True)
 
         live_controls = ttk.Frame(live)
         live_controls.pack(fill=tk.X, pady=(0, 6))
@@ -1452,7 +1479,6 @@ class SBE83GuiApp:
         self.root.bind("<Configure>", self._on_root_configure, add="+")
         self.root.bind("<ButtonRelease-1>", lambda _e: self._schedule_layout_save(delay_ms=250), add="+")
         self.main_split.bind("<ButtonRelease-1>", lambda _e: self._schedule_layout_save(delay_ms=250), add="+")
-        self.plot_split.bind("<ButtonRelease-1>", lambda _e: self._schedule_layout_save(delay_ms=250), add="+")
         self.main_notebook.bind("<<NotebookTabChanged>>", lambda _e: self._schedule_layout_save(delay_ms=250), add="+")
 
     def show_plot_tab(self):
@@ -1469,16 +1495,17 @@ class SBE83GuiApp:
         self.main_notebook.select(self.debug_tab)
 
     def toggle_sample_format_panel(self, expanded=None):
-        if expanded is None:
-            expanded = not self.sample_format_expanded
-        self.sample_format_expanded = bool(expanded)
-        if self.sample_format_expanded:
-            self.sample_format_body.pack(fill=tk.BOTH, expand=True)
-            self.sample_format_toggle_btn.configure(text="Hide Setup")
-        else:
-            self.sample_format_body.pack_forget()
-            self.sample_format_toggle_btn.configure(text="Show Setup")
-        self.root.after(20, lambda: self._adjust_plot_split_height(force=True))
+        self.sample_format_expanded = bool(True if expanded is None else expanded)
+        if self.sample_format_expanded and hasattr(self, "sample_setup_tab"):
+            try:
+                self.main_notebook.select(self.sample_setup_tab)
+            except Exception:
+                pass
+        elif hasattr(self, "plot_tab"):
+            try:
+                self.main_notebook.select(self.plot_tab)
+            except Exception:
+                pass
         self._schedule_layout_save(delay_ms=300)
 
     def _markdown_to_basic_html(self, markdown_text):
@@ -1732,6 +1759,62 @@ class SBE83GuiApp:
         except Exception as exc:
             messagebox.showerror("Help Error", f"Could not open help page:\n{exc}")
 
+    def _install_output_root(self):
+        if getattr(sys, "frozen", False):
+            return os.path.dirname(os.path.abspath(sys.executable))
+        return os.path.dirname(os.path.abspath(__file__))
+
+    def _debug_results_root(self):
+        return os.path.join(self._install_output_root(), DEBUG_RESULTS_SUBDIR)
+
+    def _update_mode_status_text(self):
+        mode_text = "DEBUG" if self.debug_mode_var.get() else "PRODUCTION"
+        root = self._current_results_root()
+        hint = "Install-local safe output" if self.debug_mode_var.get() else "Production output root"
+        self.mode_status_var.set(f"Mode: {mode_text} | Save Root: {root} | {hint}")
+
+    def _on_mode_choice_changed(self):
+        choice = str(self.mode_choice_var.get()).strip().lower()
+        enabled = choice == "debug"
+        if enabled == bool(self.debug_mode_var.get()):
+            self._update_mode_status_text()
+            return
+        self._set_debug_mode(enabled, persist=True, announce=True)
+
+    def _set_debug_mode(self, enabled, persist=True, announce=True):
+        enabled = bool(enabled)
+        self.debug_mode_var.set(enabled)
+        if hasattr(self, "mode_choice_var"):
+            self.mode_choice_var.set("debug" if enabled else "production")
+        if enabled:
+            debug_root = self._debug_results_root()
+            current_root = self._current_results_root()
+            if current_root and os.path.abspath(current_root) != os.path.abspath(debug_root):
+                self.non_debug_results_root = current_root
+            self._apply_results_root(debug_root, log_change=False)
+            if announce:
+                self.log(f"Debug mode enabled. Results root set to install directory: {debug_root}")
+                self.log(f"Session summary file: {self.session_csv}")
+        else:
+            restore_root = str(self.non_debug_results_root).strip() or SENSOR_TEST_DIR
+            self._apply_results_root(restore_root, log_change=False)
+            if announce:
+                self.log(f"Debug mode disabled. Results root restored: {restore_root}")
+                self.log(f"Session summary file: {self.session_csv}")
+        self._update_results_root_controls()
+        self._update_mode_status_text()
+        self._on_setup_field_changed()
+        if persist:
+            self._save_app_config()
+
+    def _update_results_root_controls(self):
+        if hasattr(self, "results_root_entry"):
+            entry_state = tk.DISABLED if self.debug_mode_var.get() else "readonly"
+            self.results_root_entry.configure(state=entry_state)
+        if hasattr(self, "results_root_browse_btn"):
+            state = tk.DISABLED if self.debug_mode_var.get() else tk.NORMAL
+            self.results_root_browse_btn.configure(state=state)
+
     def _current_results_root(self):
         if hasattr(self, "results_root_var"):
             value = self.results_root_var.get().strip()
@@ -1742,6 +1825,8 @@ class SBE83GuiApp:
     def _apply_results_root(self, root_path, log_change=True):
         root = os.path.abspath(str(root_path).strip())
         os.makedirs(root, exist_ok=True)
+        if not self.debug_mode_var.get():
+            self.non_debug_results_root = root
         if hasattr(self, "results_root_var"):
             self.results_root_var.set(root)
         self.session_dir = os.path.join(root, "sessions", PRECAL_TEST_SUBDIR)
@@ -1749,11 +1834,15 @@ class SBE83GuiApp:
         self.profile_dir = os.path.join(self.session_dir, "profiles")
         os.makedirs(self.profile_dir, exist_ok=True)
         self.session_csv = os.path.join(self.session_dir, f"sbe83_session_{self.session_id}.csv")
+        self._update_mode_status_text()
         if log_change:
             self.log(f"Results root updated: {root}")
             self.log(f"Session summary file: {self.session_csv}")
 
     def browse_results_root(self):
+        if self.debug_mode_var.get():
+            messagebox.showinfo("Debug Mode Active", "Disable Debug Mode to change Results Root.")
+            return
         initial = self._current_results_root()
         start_dir = initial if os.path.isdir(initial) else os.getcwd()
         path = filedialog.askdirectory(title="Select Results Root Folder", initialdir=start_dir)
@@ -1761,6 +1850,7 @@ class SBE83GuiApp:
             return
         try:
             self._apply_results_root(path, log_change=True)
+            self._save_app_config()
         except Exception as exc:
             messagebox.showerror("Results Root Error", str(exc))
 
@@ -1828,12 +1918,6 @@ class SBE83GuiApp:
         return defs
 
     def _build_sample_format_controls(self, parent):
-        toggle_row = ttk.Frame(parent)
-        toggle_row.pack(fill=tk.X, pady=(0, 6))
-        self.sample_format_toggle_btn = ttk.Button(toggle_row, text="Show Setup", command=self.toggle_sample_format_panel)
-        self.sample_format_toggle_btn.pack(side=tk.LEFT)
-        ttk.Label(toggle_row, text="Setup parser/mapping only when needed.", foreground=DARK_MUTED).pack(side=tk.LEFT, padx=(10, 0))
-
         self.sample_format_body = ttk.Frame(parent)
         self.sample_format_body.pack(fill=tk.BOTH, expand=True)
 
@@ -1889,7 +1973,7 @@ class SBE83GuiApp:
             lambda e: self.measureand_canvas.itemconfigure(self.measureand_canvas_window, width=max(e.width, 980)),
         )
         self.measureand_default_live_idx = tk.IntVar(value=0)
-        self.toggle_sample_format_panel(expanded=False)
+        self.sample_format_expanded = True
 
     def _rebuild_measureand_editor_rows(self, defs):
         for child in self.measureand_editor.winfo_children():
@@ -2864,6 +2948,33 @@ class SBE83GuiApp:
 
     def _on_setup_field_changed(self, *_):
         self.update_run_button_state()
+        self._maybe_auto_hide_test_setup()
+
+    def _setup_fields_ready_for_auto_hide(self):
+        required_text = (
+            self.operator_var.get().strip(),
+            self.bath_id_var.get().strip(),
+            self.notes_var.get().strip(),
+            self.bath_temp_c_var.get().strip(),
+            self.salinity_psu_var.get().strip(),
+            self.results_root_var.get().strip(),
+        )
+        if not all(required_text):
+            return False
+        try:
+            return int(self.sample_count_var.get()) >= 20
+        except Exception:
+            return False
+
+    def _maybe_auto_hide_test_setup(self):
+        if not self._setup_fields_ready_for_auto_hide():
+            self.setup_manual_override = False
+            return
+        if not self.test_setup_visible:
+            return
+        if self.setup_manual_override:
+            return
+        self._set_test_setup_visibility(False, auto=True)
 
     def required_setup_values(self):
         return {
