@@ -1,6 +1,6 @@
 ﻿# Sea-Bird Scientific Digital Sensor Workbench (SBS DSW)
 
-Version: `v1.1.2`
+Version: `v1.2.0`
 
 This file is the primary end-user guide and is the source opened by the in-app `Help` link.
 
@@ -46,7 +46,7 @@ SBS DSW is a bench workflow tool for digital sensors. It combines:
 - per-port serial debug consoles
 - session history, comparison plotting, and exportable artifacts
 
-## What Is New In `v1.1.2`
+## What Is New In `v1.2.0`
 
 - Help link navigation fixed in packaged app (`Help` no longer resolves section links to `_MEI...` directory index pages).
 
