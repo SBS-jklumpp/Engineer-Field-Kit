@@ -1,6 +1,6 @@
 {
-  "version": "0.0.0",
+  "version": "1.5.1",
   "url": "sbs_dsw.exe",
-  "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
-  "notes": "Replace this manifest by running publish_update.py."
+  "sha256": "d441532f81a9533ffe7f6048e9c9a6aee183e9b03905ffefbc0d26f1d3a6763a",
+  "notes": "Standalone com0com/sniffer improvements"
 }

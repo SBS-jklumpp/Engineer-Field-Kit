@@ -21,6 +21,7 @@ __pycache__/
 sbs_dsw_config.json
 src/sbs_dsw/sbs_dsw_config.json
 src/sbs_dsw/sessions_local/
+src/engineers_field_kit_multitool/sessions_local/**/PreCalTest/*.csv
 
 # local update server artifacts
 tools/update_server/public/sbs_dsw.exe

@@ -2367,8 +2367,8 @@ exit /b 0
             "Installing Update",
             f"Installing version {target_version}.\n\nThe app will close and restart automatically.",
         )
-        self.shutdown()
-        self.root.destroy()
+        if self.shutdown():
+            self.root.destroy()
 
     def _install_output_root(self):
         if getattr(sys, "frozen", False):
@@ -5731,6 +5731,14 @@ or use the Setup GUI to create custom port pairs."""
         self.append_session_row(summary)
         self.session_rows.append(summary)
         self.session_serials.add(serial_number)
+        try:
+            self._publish_session_json(notify_success=False, show_no_data=False)
+        except Exception as exc:
+            self.log(f"Session auto-publish failed: {exc}")
+            messagebox.showerror(
+                "Auto Publish Failed",
+                f"Run data was captured, but the session JSON could not be updated.\n\n{exc}",
+            )
         self.limit_var.set(f"Units tested: {len(self.session_serials)} / {MAX_UNITS_PER_SESSION}")
         run_total = int(summary.get("run_total", 1) or 1)
         run_index = int(summary.get("run_index", 1) or 1)
@@ -5798,16 +5806,42 @@ or use the Setup GUI to create custom port pairs."""
     def fmt(v):
         return "nan" if not np.isfinite(v) else f"{v:.3g}"
 
-    def save_session_json(self):
-        if not self.session_rows:
-            messagebox.showinfo("No Data", "No unit results in this session yet.")
-            return
+    def _session_json_path(self):
+        return os.path.join(self.session_dir, f"sbe83_session_{self.session_id}.json")
 
-        out_path = os.path.join(self.session_dir, f"sbe83_session_{self.session_id}.json")
+    def _write_session_json(self):
+        out_path = self._session_json_path()
         with open(out_path, "w", encoding="utf-8") as f:
             json.dump(self.session_rows, f, indent=2)
-        self.log(f"Wrote session JSON: {out_path}")
-        messagebox.showinfo("Saved", f"Session JSON saved:\n{out_path}")
+        return out_path
+
+    def _publish_session_json(self, notify_success=False, show_no_data=False):
+        if not self.session_rows:
+            if show_no_data:
+                messagebox.showinfo("No Data", "No unit results in this session yet.")
+            return None
+
+        out_path = self._write_session_json()
+        if notify_success:
+            self.log(f"Wrote session JSON: {out_path}")
+            messagebox.showinfo("Saved", f"Session JSON saved:\n{out_path}")
+        return out_path
+
+    def _ensure_session_published(self, action_label):
+        if not self.session_rows:
+            return True
+        try:
+            self._publish_session_json(notify_success=False, show_no_data=False)
+            return True
+        except Exception as exc:
+            messagebox.showerror(
+                "Publish Failed",
+                f"Could not publish the current session before {action_label}.\n\n{exc}",
+            )
+            return False
+
+    def save_session_json(self):
+        self._publish_session_json(notify_success=True, show_no_data=True)
 
     def reset_session(self):
         if self.run_in_progress:
@@ -5817,6 +5851,8 @@ or use the Setup GUI to create custom port pairs."""
             "Reset Session",
             "Start a new session and clear current table?",
         ):
+            return
+        if self.session_rows and not self._ensure_session_published("resetting the session"):
             return
 
         for row in self.tree.get_children():
@@ -5835,6 +5871,8 @@ or use the Setup GUI to create custom port pairs."""
         self.update_port_grid()
 
     def shutdown(self):
+        if not self._ensure_session_published("closing the application"):
+            return False
         self.shutdown_event.set()
         if self._layout_save_after_id is not None:
             try:
@@ -5894,6 +5932,7 @@ or use the Setup GUI to create custom port pairs."""
             self._save_app_config()
         except Exception:
             pass
+        return True
 
 
 def main():
@@ -5911,8 +5950,8 @@ def main():
     app = SBE83GuiApp(root)
 
     def on_close():
-        app.shutdown()
-        root.destroy()
+        if app.shutdown():
+            root.destroy()
 
     root.protocol("WM_DELETE_WINDOW", on_close)
     root.mainloop()
